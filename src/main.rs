@@ -59,7 +59,6 @@ fn main() {
     let package_list_post = get_packages(&args.path2);
 
     // Map from packages of the first closure to their version
-
     let mut pre = HashMap::<&str, HashSet<&str>>::new();
     let mut post = HashMap::<&str, HashSet<&str>>::new();
 
@@ -76,73 +75,20 @@ fn main() {
     let pre_keys: HashSet<&str> = pre.keys().copied().collect();
     let post_keys: HashSet<&str> = post.keys().copied().collect();
     // get the intersection of the package names for version changes
-    let maybe_changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
+    let changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
 
     // difference gives us added and removed packages
     let added: HashSet<&str> = &post_keys - &pre_keys;
     let removed: HashSet<&str> = &pre_keys - &post_keys;
 
     println!("Difference between the two generations:");
-    println!("{}", "Packages added:".underline().bold());
-    for p in added {
-        let versions = post.get(&p);
-        if let Some(ver) = versions {
-            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
-            println!(
-                "{} {} {} {}",
-                "[A:]".green().bold(),
-                p,
-                "@".yellow().bold(),
-                version_str
-            );
-        }
-    }
-    println!();
-    println!("{}", "Packages removed:".underline().bold());
-    for p in removed {
-        let version = pre.get(&p);
-        if let Some(ver) = version {
-            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
-            println!(
-                "{} {} {} {}",
-                "[R:]".red().bold(),
-                p,
-                "@".yellow(),
-                version_str
-            );
-        }
-    }
-    println!();
-    println!("{}", "Version changes:".underline().bold());
-    for p in maybe_changed {
-        if p.is_empty() {
-            continue;
-        }
 
-        // can not fail since maybe_changed is the union of the keys of pre and post
-        let ver_pre = pre.get(p).unwrap();
-        let ver_post = post.get(p).unwrap();
-        let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ").cyan();
-        let version_str_post = ver_post
-            .iter()
-            .copied()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .cyan();
+    println!();
+    print_added(&added, &post);
+    print_removed(&removed, &pre);
+    println!();
+    print_changes(&changed, &pre, &post);
 
-        if ver_pre != ver_post {
-            // println!("C: {p} @ {ver_pre} -> {ver_post}");
-            println!(
-                "{} {} {} {} {} {}",
-                "[C:]".purple().bold(),
-                p,
-                "@".yellow(),
-                version_str_pre.yellow(),
-                "~>".purple(),
-                version_str_post.cyan()
-            );
-        }
-    }
     if let Some((pre_handle, post_handle)) = closure_size_handles {
         let pre_size = pre_handle.join().unwrap();
         let post_size = post_handle.join().unwrap();
@@ -232,4 +178,72 @@ fn get_closure_size(path: &std::path::Path) -> i64 {
                 .ok()
         })
         .map_or(0, |size| size / 1024 / 1024)
+}
+
+fn print_added(set: &HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
+    println!("{}", "Packages added:".underline().bold());
+    for p in set {
+        let posts = post.get(p);
+        if let Some(ver) = posts {
+            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
+            println!(
+                "{} {} {} {}",
+                "[A:]".green().bold(),
+                p,
+                "@".yellow().bold(),
+                version_str
+            );
+        }
+    }
+}
+fn print_removed(set: &HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
+    println!("{}", "Packages removed:".underline().bold());
+    for p in set {
+        let pre = pre.get(p);
+        if let Some(ver) = pre {
+            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
+            println!(
+                "{} {} {} {}",
+                "[R:]".red().bold(),
+                p,
+                "@".yellow(),
+                version_str
+            );
+        }
+    }
+}
+fn print_changes(
+    set: &HashSet<&&str>,
+    pre: &HashMap<&str, HashSet<&str>>,
+    post: &HashMap<&str, HashSet<&str>>,
+) {
+    println!("{}", "Version changes:".underline().bold());
+    for p in set {
+        if p.is_empty() {
+            continue;
+        }
+
+        // can not fail since maybe_changed is the union of the keys of pre and post
+        let ver_pre = pre.get(*p).unwrap();
+        let ver_post = post.get(*p).unwrap();
+        let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ").cyan();
+        let version_str_post = ver_post
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .cyan();
+
+        if ver_pre != ver_post {
+            println!(
+                "{} {} {} {} {} {}",
+                "[C:]".purple().bold(),
+                p,
+                "@".yellow(),
+                version_str_pre.yellow(),
+                "~>".purple(),
+                version_str_post.cyan()
+            );
+        }
+    }
 }

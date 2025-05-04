@@ -192,7 +192,7 @@ fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
                 "[A:]".green().bold(),
                 p,
                 "@".yellow().bold(),
-                version_str.blue().blink()
+                version_str.blue()
             );
         }
     }
@@ -208,7 +208,7 @@ fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
                 "[R:]".red().bold(),
                 p,
                 "@".yellow(),
-                version_str.blue().blink()
+                version_str.blue()
             );
         }
     }
@@ -232,13 +232,12 @@ fn print_changes(
 
         if ver_pre != ver_post {
             println!(
-                "{} {} {} {} {} {}",
+                "{} {} {} {} ~> {}",
                 "[C:]".bold().bright_yellow(),
                 p,
                 "@".yellow(),
                 version_str_pre.magenta(),
-                "~>".magenta(),
-                version_str_post.blue().blink()
+                version_str_post.blue()
             );
         }
     }

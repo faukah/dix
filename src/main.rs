@@ -37,20 +37,21 @@ fn main() {
 
     if let (Ok(packages), Ok(packages2)) = (packages, packages2) {
         // Map from packages of the first closure to their version
-        let mut pre: HashMap<String, String> = HashMap::new();
+        let pre: HashMap<String, String> = packages
+            .into_iter()
+            .map(|p| {
+                let (name, version) = get_version(&*p);
+                (name.to_string(), version.to_string())
+            })
+            .collect();
 
-        // Map from packages of the second closure to their version
-        let mut post: HashMap<String, String> = HashMap::new();
-
-        for p in &packages {
-            let version = get_version(p);
-            pre.insert(version.0.to_string(), version.1.to_string());
-        }
-
-        for p in &packages2 {
-            let version = get_version(p);
-            post.insert(version.0.to_string(), version.1.to_string());
-        }
+        let post: HashMap<String, String> = packages2
+            .into_iter()
+            .map(|p| {
+                let (name, version) = get_version(&*p);
+                (name.to_string(), version.to_string())
+            })
+            .collect();
 
         // Compare the package names of both versions
         let pre_keys: HashSet<String> = pre.clone().into_keys().collect();
@@ -115,12 +116,12 @@ fn get_packages(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
     Err(BlaErr::LolErr)
 }
 
-fn get_version(pack: &str) -> (&str, &str) {
+fn get_version<'a>(pack: impl Into<&'a str>) -> (&'a str, &'a str) {
     // funny regex to split a nix store path into its name and its version.
     let re = Regex::new(r"^/nix/store/[a-z0-9]+-(.+?)-([0-9].*?)$").unwrap();
 
     // No cap frfr
-    if let Some(cap) = re.captures(pack) {
+    if let Some(cap) = re.captures(pack.into()) {
         let name = cap.get(1).unwrap().as_str();
         let version = cap.get(2).unwrap().as_str();
         return (name, version);

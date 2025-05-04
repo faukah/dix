@@ -1,5 +1,4 @@
 use clap::Parser;
-use colored::Colorize;
 use core::str;
 use regex::Regex;
 use std::{
@@ -8,6 +7,7 @@ use std::{
     string::{String, ToString},
     thread,
 };
+use yansi::Paint;
 
 #[derive(Parser, Debug)]
 #[command(name = "Nix not Python diff tool")]
@@ -82,8 +82,8 @@ fn main() {
     let removed: HashSet<&str> = &pre_keys - &post_keys;
 
     println!("Difference between the two generations:");
-
     println!();
+
     print_added(&added, &post);
     print_removed(&removed, &pre);
     println!();
@@ -185,13 +185,13 @@ fn print_added(set: &HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
     for p in set {
         let posts = post.get(p);
         if let Some(ver) = posts {
-            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
+            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
             println!(
                 "{} {} {} {}",
                 "[A:]".green().bold(),
                 p,
                 "@".yellow().bold(),
-                version_str
+                version_str.blue().blink()
             );
         }
     }
@@ -201,13 +201,13 @@ fn print_removed(set: &HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
     for p in set {
         let pre = pre.get(p);
         if let Some(ver) = pre {
-            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
+            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
             println!(
                 "{} {} {} {}",
                 "[R:]".red().bold(),
                 p,
                 "@".yellow(),
-                version_str
+                version_str.blue().blink()
             );
         }
     }
@@ -226,23 +226,18 @@ fn print_changes(
         // can not fail since maybe_changed is the union of the keys of pre and post
         let ver_pre = pre.get(*p).unwrap();
         let ver_post = post.get(*p).unwrap();
-        let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ").cyan();
-        let version_str_post = ver_post
-            .iter()
-            .copied()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .cyan();
+        let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ");
+        let version_str_post = ver_post.iter().copied().collect::<Vec<_>>().join(", ");
 
         if ver_pre != ver_post {
             println!(
                 "{} {} {} {} {} {}",
-                "[C:]".purple().bold(),
+                "[C:]".bold().bright_yellow(),
                 p,
                 "@".yellow(),
-                version_str_pre.yellow(),
-                "~>".purple(),
-                version_str_post.cyan()
+                version_str_pre.magenta(),
+                "~>".magenta(),
+                version_str_post.blue().blink()
             );
         }
     }

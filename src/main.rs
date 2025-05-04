@@ -1,10 +1,12 @@
 use clap::Parser;
 use core::str;
+use env_logger;
+use log::{debug, error, info, warn};
 use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
     process::Command,
-    string::String,
+    string::{String, ToString},
     sync::OnceLock,
     thread,
 };
@@ -49,6 +51,14 @@ struct Args {
     /// Print the closure size
     #[arg(long, short)]
     closure_size: bool,
+
+    /// Verbosity level: -v for debug, -vv for trace
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+
+    /// Silence all output except errors
+    #[arg(short, long)]
+    quiet: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -78,14 +88,35 @@ impl<'a> Package<'a> {
 fn main() {
     let args = Args::parse();
 
-    println!("Nix available: {}", check_nix_available());
+    // Configure logger based on verbosity flags and environment variables
+    // Respects RUST_LOG environment variable if present.
+    // XXX:We can also dedicate a specific env variable for this tool, if we want to.
+    let env = env_logger::Env::default().filter_or(
+        "RUST_LOG",
+        if args.quiet {
+            "error"
+        } else {
+            match args.verbose {
+                0 => "info",
+                1 => "debug",
+                _ => "trace",
+            }
+        },
+    );
 
+    // Build and initialize the logger
+    env_logger::Builder::from_env(env)
+        .format_timestamp(Some(env_logger::fmt::TimestampPrecision::Seconds))
+        .init();
+
+    debug!("Nix available: {}", check_nix_available()); // XXX: is this supposed to be user-facing?
     println!("<<< {}", args.path.to_string_lossy());
     println!(">>> {}", args.path2.to_string_lossy());
 
-    // Handles to the threads collecting closure size information
+    // handles to the threads collecting closure size information
     // We do this as early as possible because nix is slow.
     let closure_size_handles = if args.closure_size {
+        debug!("Calculating closure sizes in background");
         let path = args.path.clone();
         let path2 = args.path2.clone();
         Some((
@@ -98,17 +129,41 @@ fn main() {
 
     // Get package lists and handle potential errors
     let package_list_pre = match get_packages(&args.path) {
-        Ok(packages) => packages,
+        Ok(packages) => {
+            debug!("Found {} packages in first closure", packages.len());
+            packages
+        }
         Err(e) => {
-            eprintln!("Error getting packages from path {}: {}", args.path.display(), e);
+            error!(
+                "Error getting packages from path {}: {}",
+                args.path.display(),
+                e
+            );
+            eprintln!(
+                "Error getting packages from path {}: {}",
+                args.path.display(),
+                e
+            );
             Vec::new()
         }
     };
 
     let package_list_post = match get_packages(&args.path2) {
-        Ok(packages) => packages,
+        Ok(packages) => {
+            debug!("Found {} packages in second closure", packages.len());
+            packages
+        }
         Err(e) => {
-            eprintln!("Error getting packages from path {}: {}", args.path2.display(), e);
+            error!(
+                "Error getting packages from path {}: {}",
+                args.path2.display(),
+                e
+            );
+            eprintln!(
+                "Error getting packages from path {}: {}",
+                args.path2.display(),
+                e
+            );
             Vec::new()
         }
     };
@@ -121,11 +176,9 @@ fn main() {
         match get_version(&**p) {
             Ok((name, version)) => {
                 pre.entry(name).or_default().insert(version);
-            },
+            }
             Err(e) => {
-                if cfg!(debug_assertions) {
-                    eprintln!("Error parsing package version: {e}");
-                }
+                debug!("Error parsing package version: {}", e);
             }
         }
     }
@@ -134,11 +187,9 @@ fn main() {
         match get_version(&**p) {
             Ok((name, version)) => {
                 post.entry(name).or_default().insert(version);
-            },
+            }
             Err(e) => {
-                if cfg!(debug_assertions) {
-                    eprintln!("Error parsing package version: {e}");
-                }
+                debug!("Error parsing package version: {}", e);
             }
         }
     }
@@ -153,6 +204,20 @@ fn main() {
     // Get the intersection of the package names for version changes
     let changed: HashSet<&str> = &pre_keys & &post_keys;
 
+    debug!("Added packages: {}", added.len());
+    debug!("Removed packages: {}", removed.len());
+    debug!(
+        "Changed packages: {}",
+        changed
+            .iter()
+            .filter(|p| !p.is_empty())
+            .filter_map(|p| match (pre.get(p), post.get(p)) {
+                (Some(ver_pre), Some(ver_post)) if ver_pre != ver_post => Some(p),
+                _ => None,
+            })
+            .count()
+    );
+
     println!("Difference between the two generations:");
     println!();
 
@@ -165,15 +230,20 @@ fn main() {
     if let Some((pre_handle, post_handle)) = closure_size_handles {
         match (pre_handle.join(), post_handle.join()) {
             (Ok(Ok(pre_size)), Ok(Ok(post_size))) => {
+                debug!("Pre closure size: {} MiB", pre_size);
+                debug!("Post closure size: {} MiB", post_size);
+
                 println!("{}", "Closure Size:".underline().bold());
                 println!("Before: {pre_size} MiB");
                 println!("After: {post_size} MiB");
                 println!("Difference: {} MiB", post_size - pre_size);
             }
             (Ok(Err(e)), _) | (_, Ok(Err(e))) => {
+                error!("Error getting closure size: {}", e);
                 eprintln!("Error getting closure size: {e}");
             }
             _ => {
+                error!("Failed to get closure size information due to a thread error");
                 eprintln!("Error: Failed to get closure size information due to a thread error");
             }
         }
@@ -182,6 +252,8 @@ fn main() {
 
 /// Gets the packages in a closure
 fn get_packages(path: &std::path::Path) -> Result<Vec<String>> {
+    debug!("Getting packages from path: {}", path.display());
+
     // Get the nix store paths using `nix-store --query --references <path>``
     let output = Command::new("nix-store")
         .arg("--query")
@@ -191,18 +263,23 @@ fn get_packages(path: &std::path::Path) -> Result<Vec<String>> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        error!("nix-store command failed: {}", stderr);
         return Err(AppError::CommandFailed(format!(
             "nix-store command failed: {stderr}"
         )));
     }
 
     let list = str::from_utf8(&output.stdout)?;
-    Ok(list.lines().map(str::to_owned).collect())
+    let packages: Vec<String> = list.lines().map(str::to_owned).collect();
+    debug!("Found {} packages", packages.len());
+    Ok(packages)
 }
 
 /// Gets the dependencies of the packages in a closure
 fn get_dependencies(path: &std::path::Path) -> Result<Vec<String>> {
-    // Get the nix store paths using `nix-store --query --requisites <path>``
+    debug!("Getting dependencies from path: {}", path.display());
+
+    // Get the nix store paths using `nix-store --query --requisites <path>`
     let output = Command::new("nix-store")
         .arg("--query")
         .arg("--requisites")
@@ -211,13 +288,16 @@ fn get_dependencies(path: &std::path::Path) -> Result<Vec<String>> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        error!("nix-store command failed: {}", stderr);
         return Err(AppError::CommandFailed(format!(
             "nix-store command failed: {stderr}"
         )));
     }
 
     let list = str::from_utf8(&output.stdout)?;
-    Ok(list.lines().map(str::to_owned).collect())
+    let dependencies: Vec<String> = list.lines().map(str::to_owned).collect();
+    debug!("Found {} dependencies", dependencies.len());
+    Ok(dependencies)
 }
 
 // Returns a reference to the compiled regex pattern.
@@ -256,13 +336,21 @@ fn get_version<'a>(pack: impl Into<&'a str>) -> Result<(&'a str, &'a str)> {
 
 fn check_nix_available() -> bool {
     // Check if nix is available on the host system.
+    debug!("Checking nix command availability");
     let nix_available = Command::new("nix").arg("--version").output().ok();
     let nix_query_available = Command::new("nix-store").arg("--version").output().ok();
 
-    nix_available.is_some() && nix_query_available.is_some()
+    let result = nix_available.is_some() && nix_query_available.is_some();
+    if !result {
+        warn!("Nix commands not available, functionality may be limited");
+    }
+
+    result
 }
 
 fn get_closure_size(path: &std::path::Path) -> Result<i64> {
+    debug!("Calculating closure size for path: {}", path.display());
+
     // Run nix path-info command to get closure size
     let output = Command::new("nix")
         .arg("path-info")
@@ -272,6 +360,7 @@ fn get_closure_size(path: &std::path::Path) -> Result<i64> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        error!("nix path-info command failed: {}", stderr);
         return Err(AppError::CommandFailed(format!(
             "nix path-info command failed: {stderr}"
         )));
@@ -280,20 +369,33 @@ fn get_closure_size(path: &std::path::Path) -> Result<i64> {
     let stdout = str::from_utf8(&output.stdout)?;
 
     // Parse the last word in the output as an integer (in bytes)
-    stdout
+    let size = stdout
         .split_whitespace()
         .last()
-        .ok_or_else(|| AppError::ParseError("Unexpected output format from nix path-info".into()))?
+        .ok_or_else(|| {
+            let err = "Unexpected output format from nix path-info";
+            error!("{}", err);
+            AppError::ParseError(err.into())
+        })?
         .parse::<i64>()
-        .map_err(|e| AppError::ParseError(format!("Failed to parse size value: {e}")))
-        .map(|size| size / 1024 / 1024) // Convert to MiB
+        .map_err(|e| {
+            let err = format!("Failed to parse size value: {e}");
+            error!("{}", err);
+            AppError::ParseError(err)
+        })?;
+
+    // Convert to MiB
+    let size_mib = size / 1024 / 1024;
+    debug!("Closure size for {}: {} MiB", path.display(), size_mib);
+    Ok(size_mib)
 }
 
 fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
     println!("{}", "Packages added:".underline().bold());
 
-    // Use sorted output
-    let mut sorted: Vec<_> = set.iter()
+    // Use sorted outpu
+    let mut sorted: Vec<_> = set
+        .iter()
         .filter_map(|p| post.get(p).map(|ver| (*p, ver)))
         .collect();
 
@@ -314,18 +416,26 @@ fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
 
 fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
     println!("{}", "Packages removed:".underline().bold());
-    set.iter()
+
+    // Use sorted output for more predictable and readable results
+    let mut sorted: Vec<_> = set
+        .iter()
         .filter_map(|p| pre.get(p).map(|ver| (*p, ver)))
-        .for_each(|(p, ver)| {
-            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
-            println!(
-                "{} {} {} {}",
-                "[R:]".red().bold(),
-                p,
-                "@".yellow(),
-                version_str.blue()
-            );
-        });
+        .collect();
+
+    // Sort by package name for consistent output
+    sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+    for (p, ver) in sorted {
+        let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
+        println!(
+            "{} {} {} {}",
+            "[R:]".red().bold(),
+            p,
+            "@".yellow(),
+            version_str.blue()
+        );
+    }
 }
 
 fn print_changes(
@@ -334,27 +444,32 @@ fn print_changes(
     post: &HashMap<&str, HashSet<&str>>,
 ) {
     println!("{}", "Version changes:".underline().bold());
-    set.iter()
-        .filter(|p| !p.is_empty())
-        .filter_map(|p| {
-            match (pre.get(p), post.get(p)) {
-                (Some(ver_pre), Some(ver_post)) if ver_pre != ver_post => {
-                    Some((p, ver_pre, ver_post))
-                }
-                _ => None,
-            }
-        })
-        .for_each(|(p, ver_pre, ver_post)| {
-            let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ");
-            let version_str_post = ver_post.iter().copied().collect::<Vec<_>>().join(", ");
 
-            println!(
-                "{} {} {} {} ~> {}",
-                "[C:]".bold().bright_yellow(),
-                p,
-                "@".yellow(),
-                version_str_pre.magenta(),
-                version_str_post.blue()
-            );
-        });
+    // Use sorted output for more predictable and readable results
+    let mut changes = Vec::new();
+
+    for p in set.iter().filter(|p| !p.is_empty()) {
+        if let (Some(ver_pre), Some(ver_post)) = (pre.get(p), post.get(p)) {
+            if ver_pre != ver_post {
+                changes.push((*p, ver_pre, ver_post));
+            }
+        }
+    }
+
+    // Sort by package name for consistent output
+    changes.sort_by(|(a, _, _), (b, _, _)| a.cmp(b));
+
+    for (p, ver_pre, ver_post) in changes {
+        let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ");
+        let version_str_post = ver_post.iter().copied().collect::<Vec<_>>().join(", ");
+
+        println!(
+            "{} {} {} {} ~> {}",
+            "[C:]".bold().bright_yellow(),
+            p,
+            "@".yellow(),
+            version_str_pre.magenta(),
+            version_str_post.blue()
+        );
+    }
 }

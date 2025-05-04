@@ -74,8 +74,8 @@ fn main() {
             .collect();
 
         // Compare the package names of both versions
-        let pre_keys: HashSet<String> = pre.clone().into_keys().collect();
-        let post_keys: HashSet<String> = post.clone().into_keys().collect();
+        let pre_keys: HashSet<String> = pre.keys().map(|k| k.clone()).collect();
+        let post_keys: HashSet<String> = post.keys().map(|k| k.clone()).collect();
         // get the intersection of the package names for version changes
         let maybe_changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
 
@@ -117,22 +117,22 @@ fn main() {
             if p.is_empty() {
                 continue;
             }
-            let version_pre = pre.get(p);
-            let version_post = post.get(p);
 
-            if let (Some(ver_pre), Some(ver_post)) = (version_pre, version_post) {
-                if ver_pre != ver_post {
-                    // println!("C: {p} @ {ver_pre} -> {ver_post}");
-                    println!(
-                        "{} {} {} {} {} {}",
-                        "[C:]".purple().bold(),
-                        p,
-                        "@".yellow(),
-                        ver_pre.yellow(),
-                        "~>".purple(),
-                        ver_post.cyan()
-                    );
-                }
+            // can not fail since maybe_changed is the union of the keys of pre and post
+            let ver_pre = pre.get(p).unwrap();
+            let ver_post = post.get(p).unwrap();
+
+            if ver_pre != ver_post {
+                // println!("C: {p} @ {ver_pre} -> {ver_post}");
+                println!(
+                    "{} {} {} {} {} {}",
+                    "[C:]".purple().bold(),
+                    p,
+                    "@".yellow(),
+                    ver_pre.yellow(),
+                    "~>".purple(),
+                    ver_post.cyan()
+                );
             }
         }
         if args.closure_size {

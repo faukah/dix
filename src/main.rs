@@ -42,29 +42,32 @@ fn main() {
     println!(">>> {}", args.path2.to_string_lossy());
 
     // handles to the threads collecting closure size information
-    let mut csize_pre_handle = None;
-    let mut csize_post_handle = None;
+    // We do this as early as possible because nix is slow.
+    let closure_size_handles = if args.closure_size {
+        let path = args.path.clone();
+        let path2 = args.path2.clone();
+        Some((
+            thread::spawn(move || get_closure_size(&path)),
+            thread::spawn(move || get_closure_size(&path2)),
+        ))
+    } else {
+        None
+    };
 
-    // get closure size in the background to increase performance
-    if args.closure_size {
-        let (p1, p2) = (args.path.clone(), args.path2.clone());
-        csize_pre_handle = Some(thread::spawn(move || get_closure_size(&p1)));
-        csize_post_handle = Some(thread::spawn(move || get_closure_size(&p2)));
-    }
+    let package_list_pre = get_packages(&args.path);
+    let package_list_post = get_packages(&args.path2);
 
-    let packages = get_packages(&args.path);
-    let packages2 = get_packages(&args.path2);
-
-    if let (Ok(packages), Ok(packages2)) = (packages, packages2) {
+    if let (Ok(package_list_pre), Ok(package_list_post)) = (package_list_pre, package_list_post) {
         // Map from packages of the first closure to their version
+
         let mut pre = HashMap::<&str, HashSet<&str>>::new();
-        for p in &packages {
+        let mut post = HashMap::<&str, HashSet<&str>>::new();
+
+        for p in &package_list_pre {
             let (name, version) = get_version(&**p);
             pre.entry(name).or_default().insert(version);
         }
-
-        let mut post = HashMap::<&str, HashSet<&str>>::new();
-        for p in &packages2 {
+        for p in &package_list_post {
             let (name, version) = get_version(&**p);
             post.entry(name).or_default().insert(version);
         }
@@ -140,15 +143,14 @@ fn main() {
                 );
             }
         }
-        if args.closure_size {
-            let closure_size_pre = csize_pre_handle.unwrap().join().unwrap() as i64;
-            let closure_size_post = csize_post_handle.unwrap().join().unwrap() as i64;
+        if let Some((pre_handle, post_handle)) = closure_size_handles {
+            let pre_size = pre_handle.join().unwrap();
+            let post_size = post_handle.join().unwrap();
 
             println!("{}", "Closure Size:".underline().bold());
-
-            println!("Before: {} MiB", closure_size_pre);
-            println!("After: {} MiB", closure_size_post);
-            println!("Difference: {} MiB", closure_size_post - closure_size_pre);
+            println!("Before: {pre_size} MiB");
+            println!("After: {post_size} MiB");
+            println!("Difference: {} MiB", post_size - pre_size);
         }
     }
 }

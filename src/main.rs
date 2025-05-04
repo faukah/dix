@@ -9,6 +9,9 @@ use std::{
 };
 
 #[derive(Parser, Debug)]
+#[command(name = "Nix not Python diff tool")]
+#[command(version = "1.0")]
+#[command(about = "Diff two different system closures", long_about = None)]
 #[command(version, about, long_about = None)]
 struct Args {
     path: std::path::PathBuf,
@@ -17,6 +20,10 @@ struct Args {
     /// Print the whole store paths
     #[arg(short, long)]
     paths: bool,
+
+    /// Print the closure size
+    #[arg(long, short)]
+    closure_size: bool,
 }
 
 // Only there to make the compiler shut up for now.
@@ -116,6 +123,16 @@ fn main() {
                 }
             }
         }
+        if args.closure_size {
+            let closure_size_pre = get_closure_size(&args.path) as i64;
+            let closure_size_post = get_closure_size(&args.path2) as i64;
+
+            println!("{}", "Closure Size:".underline().bold());
+
+            println!("Before: {} MiB", closure_size_pre);
+            println!("After: {} MiB", closure_size_post);
+            println!("Difference: {} MiB", closure_size_post - closure_size_pre);
+        }
     }
 }
 
@@ -158,4 +175,25 @@ fn check_nix_available() -> bool {
     let nix_query_available = Command::new("nix-store").arg("--version").output().ok();
 
     nix_available.is_some() && nix_query_available.is_some()
+}
+
+fn get_closure_size(path: &std::path::Path) -> u64 {
+    let bytes = Command::new("nix")
+        .arg("path-info")
+        .arg("--closure-size")
+        .arg(path.join("sw"))
+        .output();
+
+    if let Ok(size) = bytes {
+        let res = str::from_utf8(&size.stdout);
+        if let Ok(res) = res {
+            let res = res.split_whitespace().last();
+            if let Some(res) = res {
+                if let Ok(res) = res.parse::<u64>() {
+                    return res / 1024 / 1024;
+                }
+            }
+        }
+    }
+    0
 }

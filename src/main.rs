@@ -217,7 +217,7 @@ fn check_nix_available() -> bool {
     nix_available.is_some() && nix_query_available.is_some()
 }
 
-fn get_closure_size(path: &std::path::Path) -> u64 {
+fn get_closure_size(path: &std::path::Path) -> i64 {
     Command::new("nix")
         .arg("path-info")
         .arg("--closure-size")
@@ -229,9 +229,8 @@ fn get_closure_size(path: &std::path::Path) -> u64 {
                 .ok()?
                 .split_whitespace()
                 .last()?
-                .parse::<u64>()
+                .parse::<i64>()
                 .ok()
         })
-        .map(|size| size / 1024 / 1024)
-        .unwrap_or(0)
+        .map_or(0, |size| size / 1024 / 1024)
 }

@@ -74,20 +74,21 @@ fn main() {
     // Compare the package names of both versions
     let pre_keys: HashSet<&str> = pre.keys().copied().collect();
     let post_keys: HashSet<&str> = post.keys().copied().collect();
-    // get the intersection of the package names for version changes
-    let changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
 
     // difference gives us added and removed packages
     let added: HashSet<&str> = &post_keys - &pre_keys;
     let removed: HashSet<&str> = &pre_keys - &post_keys;
+    // get the intersection of the package names for version changes
+    let changed: HashSet<&str> = &pre_keys & &post_keys;
 
     println!("Difference between the two generations:");
     println!();
 
-    print_added(&added, &post);
-    print_removed(&removed, &pre);
+    print_added(added, &post);
     println!();
-    print_changes(&changed, &pre, &post);
+    print_removed(removed, &pre);
+    println!();
+    print_changes(changed, &pre, &post);
 
     if let Some((pre_handle, post_handle)) = closure_size_handles {
         let pre_size = pre_handle.join().unwrap();
@@ -180,7 +181,7 @@ fn get_closure_size(path: &std::path::Path) -> i64 {
         .map_or(0, |size| size / 1024 / 1024)
 }
 
-fn print_added(set: &HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
+fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
     println!("{}", "Packages added:".underline().bold());
     for p in set {
         let posts = post.get(p);
@@ -196,7 +197,7 @@ fn print_added(set: &HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
         }
     }
 }
-fn print_removed(set: &HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
+fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
     println!("{}", "Packages removed:".underline().bold());
     for p in set {
         let pre = pre.get(p);
@@ -213,7 +214,7 @@ fn print_removed(set: &HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
     }
 }
 fn print_changes(
-    set: &HashSet<&&str>,
+    set: HashSet<&str>,
     pre: &HashMap<&str, HashSet<&str>>,
     post: &HashMap<&str, HashSet<&str>>,
 ) {
@@ -224,8 +225,8 @@ fn print_changes(
         }
 
         // can not fail since maybe_changed is the union of the keys of pre and post
-        let ver_pre = pre.get(*p).unwrap();
-        let ver_post = post.get(*p).unwrap();
+        let ver_pre = pre.get(p).unwrap();
+        let ver_post = post.get(p).unwrap();
         let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ");
         let version_str_post = ver_post.iter().copied().collect::<Vec<_>>().join(", ");
 

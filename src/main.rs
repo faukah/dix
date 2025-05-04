@@ -27,10 +27,11 @@ struct Args {
     closure_size: bool,
 }
 
-// Only there to make the compiler shut up for now.
-#[derive(Debug)]
-enum BlaErr {
-    LolErr,
+struct Package<'a> {
+    name: &'a str,
+    versions: HashSet<&'a str>,
+    /// Save if a package is a dependency of another package
+    is_dep: bool,
 }
 
 fn main() {
@@ -57,106 +58,104 @@ fn main() {
     let package_list_pre = get_packages(&args.path);
     let package_list_post = get_packages(&args.path2);
 
-    if let (Ok(package_list_pre), Ok(package_list_post)) = (package_list_pre, package_list_post) {
-        // Map from packages of the first closure to their version
+    // Map from packages of the first closure to their version
 
-        let mut pre = HashMap::<&str, HashSet<&str>>::new();
-        let mut post = HashMap::<&str, HashSet<&str>>::new();
+    let mut pre = HashMap::<&str, HashSet<&str>>::new();
+    let mut post = HashMap::<&str, HashSet<&str>>::new();
 
-        for p in &package_list_pre {
-            let (name, version) = get_version(&**p);
-            pre.entry(name).or_default().insert(version);
+    for p in &package_list_pre {
+        let (name, version) = get_version(&**p);
+        pre.entry(name).or_default().insert(version);
+    }
+    for p in &package_list_post {
+        let (name, version) = get_version(&**p);
+        post.entry(name).or_default().insert(version);
+    }
+
+    // Compare the package names of both versions
+    let pre_keys: HashSet<&str> = pre.keys().copied().collect();
+    let post_keys: HashSet<&str> = post.keys().copied().collect();
+    // get the intersection of the package names for version changes
+    let maybe_changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
+
+    // difference gives us added and removed packages
+    let added: HashSet<&str> = &post_keys - &pre_keys;
+    let removed: HashSet<&str> = &pre_keys - &post_keys;
+
+    println!("Difference between the two generations:");
+    println!("{}", "Packages added:".underline().bold());
+    for p in added {
+        let versions = post.get(&p);
+        if let Some(ver) = versions {
+            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
+            println!(
+                "{} {} {} {}",
+                "[A:]".green().bold(),
+                p,
+                "@".yellow().bold(),
+                version_str
+            );
         }
-        for p in &package_list_post {
-            let (name, version) = get_version(&**p);
-            post.entry(name).or_default().insert(version);
+    }
+    println!();
+    println!("{}", "Packages removed:".underline().bold());
+    for p in removed {
+        let version = pre.get(&p);
+        if let Some(ver) = version {
+            let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
+            println!(
+                "{} {} {} {}",
+                "[R:]".red().bold(),
+                p,
+                "@".yellow(),
+                version_str
+            );
+        }
+    }
+    println!();
+    println!("{}", "Version changes:".underline().bold());
+    for p in maybe_changed {
+        if p.is_empty() {
+            continue;
         }
 
-        // Compare the package names of both versions
-        let pre_keys: HashSet<&str> = pre.keys().copied().collect();
-        let post_keys: HashSet<&str> = post.keys().copied().collect();
-        // get the intersection of the package names for version changes
-        let maybe_changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
+        // can not fail since maybe_changed is the union of the keys of pre and post
+        let ver_pre = pre.get(p).unwrap();
+        let ver_post = post.get(p).unwrap();
+        let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ").cyan();
+        let version_str_post = ver_post
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .cyan();
 
-        // difference gives us added and removed packages
-        let added: HashSet<&str> = &post_keys - &pre_keys;
-        let removed: HashSet<&str> = &pre_keys - &post_keys;
-
-        println!("Difference between the two generations:");
-        println!("{}", "Packages added:".underline().bold());
-        for p in added {
-            let versions = post.get(&p);
-            if let Some(ver) = versions {
-                let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
-                println!(
-                    "{} {} {} {}",
-                    "[A:]".green().bold(),
-                    p,
-                    "@".yellow().bold(),
-                    version_str
-                );
-            }
+        if ver_pre != ver_post {
+            // println!("C: {p} @ {ver_pre} -> {ver_post}");
+            println!(
+                "{} {} {} {} {} {}",
+                "[C:]".purple().bold(),
+                p,
+                "@".yellow(),
+                version_str_pre.yellow(),
+                "~>".purple(),
+                version_str_post.cyan()
+            );
         }
-        println!();
-        println!("{}", "Packages removed:".underline().bold());
-        for p in removed {
-            let version = pre.get(&p);
-            if let Some(ver) = version {
-                let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
-                println!(
-                    "{} {} {} {}",
-                    "[R:]".red().bold(),
-                    p,
-                    "@".yellow(),
-                    version_str
-                );
-            }
-        }
-        println!();
-        println!("{}", "Version changes:".underline().bold());
-        for p in maybe_changed {
-            if p.is_empty() {
-                continue;
-            }
+    }
+    if let Some((pre_handle, post_handle)) = closure_size_handles {
+        let pre_size = pre_handle.join().unwrap();
+        let post_size = post_handle.join().unwrap();
 
-            // can not fail since maybe_changed is the union of the keys of pre and post
-            let ver_pre = pre.get(p).unwrap();
-            let ver_post = post.get(p).unwrap();
-            let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ").cyan();
-            let version_str_post = ver_post
-                .iter()
-                .copied()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .cyan();
-
-            if ver_pre != ver_post {
-                // println!("C: {p} @ {ver_pre} -> {ver_post}");
-                println!(
-                    "{} {} {} {} {} {}",
-                    "[C:]".purple().bold(),
-                    p,
-                    "@".yellow(),
-                    version_str_pre.yellow(),
-                    "~>".purple(),
-                    version_str_post.cyan()
-                );
-            }
-        }
-        if let Some((pre_handle, post_handle)) = closure_size_handles {
-            let pre_size = pre_handle.join().unwrap();
-            let post_size = post_handle.join().unwrap();
-
-            println!("{}", "Closure Size:".underline().bold());
-            println!("Before: {pre_size} MiB");
-            println!("After: {post_size} MiB");
-            println!("Difference: {} MiB", post_size - pre_size);
-        }
+        println!("{}", "Closure Size:".underline().bold());
+        println!("Before: {pre_size} MiB");
+        println!("After: {post_size} MiB");
+        println!("Difference: {} MiB", post_size - pre_size);
     }
 }
 
 // gets the packages in a closure
-fn get_packages(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
+fn get_packages(path: &std::path::Path) -> Vec<String> {
     // get the nix store paths using nix-store --query --references <path>
     let references = Command::new("nix-store")
         .arg("--query")
@@ -169,14 +168,14 @@ fn get_packages(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
 
         if let Ok(list) = list {
             let res: Vec<String> = list.lines().map(ToString::to_string).collect();
-            return Ok(res);
+            return res;
         }
     }
-    Err(BlaErr::LolErr)
+    Vec::new()
 }
 
 // gets the dependencies of the packages in a closure
-fn get_dependencies(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
+fn get_dependencies(path: &std::path::Path) -> Vec<String> {
     // get the nix store paths using nix-store --query --references <path>
     let references = Command::new("nix-store")
         .arg("--query")
@@ -189,10 +188,10 @@ fn get_dependencies(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
 
         if let Ok(list) = list {
             let res: Vec<String> = list.lines().map(ToString::to_string).collect();
-            return Ok(res);
+            return res;
         }
     }
-    Err(BlaErr::LolErr)
+    Vec::new()
 }
 
 fn get_version<'a>(pack: impl Into<&'a str>) -> (&'a str, &'a str) {

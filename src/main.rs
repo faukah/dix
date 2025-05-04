@@ -1,7 +1,6 @@
 use clap::Parser;
 use core::str;
 use regex::Regex;
-use std::{process::Command, string::String};
 use std::{collections::HashSet, hash::Hash, process::Command, string::String};
 
 #[derive(Parser, Debug)]
@@ -16,9 +15,9 @@ struct Args {
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Clone, Hash)]
-struct Package {
-    name: String,
-    version: String,
+struct Package<'a> {
+    name: &'a str,
+    version: &'a str,
 }
 
 // Only there to make the compiler shut up for now.
@@ -109,20 +108,20 @@ fn get_packages(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
     Err(BlaErr::LolErr)
 }
 
-fn get_version(pack: String) -> Package {
+fn get_version(pack: &str) -> Package {
     // This is bound to break sooner or later
     let re = Regex::new(r"^/nix/store/[a-z0-9]+-([^-]+(?:-[^-]+)*)-([\d][^/]*)$").unwrap();
 
     // No cap frfr
-    if let Some(cap) = re.captures(&pack) {
-        let name = cap.get(1).unwrap().as_str().to_string();
-        let version = cap.get(2).unwrap().as_str().to_string();
+    if let Some(cap) = re.captures(pack) {
+        let name = cap.get(1).unwrap().as_str();
+        let version = cap.get(2).unwrap().as_str();
         return Package { name, version };
     }
 
     Package {
-        name: "".to_string(),
-        version: "".to_string(),
+        name: "",
+        version: "",
     }
 }
 

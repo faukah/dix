@@ -190,6 +190,7 @@ impl<'a> Package<'a> {
     }
 }
 
+#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 fn main() {
     let args = Args::parse();
 
@@ -553,7 +554,9 @@ fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col_widt
     sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
 
     for (p, ver) in sorted {
-        let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
+        let mut version_vec = ver.iter().copied().collect::<Vec<_>>();
+        version_vec.sort_unstable();
+        let version_str = version_vec.join(", ");
         println!(
             "{} {:col_width$} {} {}",
             "[A:]".green().bold(),
@@ -577,7 +580,9 @@ fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, col_wid
     sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
 
     for (p, ver) in sorted {
-        let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
+        let mut version_vec = ver.iter().copied().collect::<Vec<_>>();
+        version_vec.sort_unstable();
+        let version_str = version_vec.join(", ");
         println!(
             "{} {:col_width$} {} {}",
             "[R:]".red().bold(),
@@ -611,8 +616,13 @@ fn print_changes(
     changes.sort_by(|(a, _, _), (b, _, _)| a.cmp(b));
 
     for (p, ver_pre, ver_post) in changes {
-        let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ");
-        let version_str_post = ver_post.iter().copied().collect::<Vec<_>>().join(", ");
+        let mut version_vec_pre = ver_pre.iter().copied().collect::<Vec<_>>();
+        version_vec_pre.sort_unstable();
+        let version_str_pre = version_vec_pre.join(", ");
+        let mut version_vec_post = ver_post.iter().copied().collect::<Vec<_>>();
+
+        version_vec_post.sort_unstable();
+        let version_str_post = version_vec_post.join(", ");
 
         println!(
             "{} {:col_width$} {} {} ~> {}",

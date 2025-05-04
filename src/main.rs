@@ -2,6 +2,7 @@ use clap::Parser;
 use core::str;
 use regex::Regex;
 use std::{process::Command, string::String};
+use std::{collections::HashSet, hash::Hash, process::Command, string::String};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -47,27 +48,13 @@ fn main() {
         let packages = get_packages(&args.path);
         let packages2 = get_packages(&args.path2);
 
-        // println!("{:?}", packages);
-
         if let (Ok(packages), Ok(packages2)) = (packages, packages2) {
-            let mut added = vec![];
-            let mut removed = vec![];
+            let pre_packages: HashSet<Package> = packages.iter().map(|p| get_version(p)).collect();
+            let post_packages: HashSet<Package> =
+                packages2.iter().map(|p| get_version(p)).collect();
 
-            for i in &packages {
-                if !packages2.contains(i) {
-                    added.push(i);
-                }
-            }
-            for i in &packages {
-                if !packages2.contains(i) {
-                    removed.push(i);
-                }
-            }
-
-            let added_pretty: Vec<Package> =
-                added.iter().map(|p| get_version(p.to_string())).collect();
-            let removed_pretty: Vec<Package> =
-                removed.iter().map(|p| get_version(p.to_string())).collect();
+            let added: HashSet<_> = pre_packages.difference(&post_packages).collect();
+            let removed: HashSet<_> = post_packages.difference(&pre_packages).collect();
 
             println!("Difference between the two generations:");
             println!("Packages added: ");
@@ -81,14 +68,14 @@ fn main() {
                     println!("R: {:?}", p);
                 }
             } else {
-                for p in added_pretty.iter() {
+                for p in added.iter() {
                     if !p.name.is_empty() {
                         println!("A: {} @ {}", p.name, p.version);
                     }
                 }
                 println!();
                 println!("Packages removed: ");
-                for p in removed_pretty.iter() {
+                for p in removed.iter() {
                     if !p.name.is_empty() {
                         println!("R: {} @ {}", p.name, p.version);
                     }

@@ -70,8 +70,8 @@ fn main() {
         }
 
         // Compare the package names of both versions
-        let pre_keys: HashSet<&str> = pre.keys().map(|k| *k).collect();
-        let post_keys: HashSet<&str> = post.keys().map(|k| *k).collect();
+        let pre_keys: HashSet<&str> = pre.keys().copied().collect();
+        let post_keys: HashSet<&str> = post.keys().copied().collect();
         // get the intersection of the package names for version changes
         let maybe_changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
 
@@ -84,7 +84,7 @@ fn main() {
         for p in added {
             let versions = post.get(&p);
             if let Some(ver) = versions {
-                let version_str = ver.iter().map(|v| *v).collect::<Vec<_>>().join(" ").cyan();
+                let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
                 println!(
                     "{} {} {} {}",
                     "[A:]".green().bold(),
@@ -99,7 +99,7 @@ fn main() {
         for p in removed {
             let version = pre.get(&p);
             if let Some(ver) = version {
-                let version_str = ver.iter().map(|v| *v).collect::<Vec<_>>().join(" ").cyan();
+                let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ").cyan();
                 println!(
                     "{} {} {} {}",
                     "[R:]".red().bold(),
@@ -119,15 +119,10 @@ fn main() {
             // can not fail since maybe_changed is the union of the keys of pre and post
             let ver_pre = pre.get(p).unwrap();
             let ver_post = post.get(p).unwrap();
-            let version_str_pre = ver_pre
-                .iter()
-                .map(|v| *v)
-                .collect::<Vec<_>>()
-                .join(" ")
-                .cyan();
+            let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ").cyan();
             let version_str_post = ver_post
                 .iter()
-                .map(|v| *v)
+                .copied()
                 .collect::<Vec<_>>()
                 .join(" ")
                 .cyan();
@@ -158,11 +153,32 @@ fn main() {
     }
 }
 
+// gets the packages in a closure
 fn get_packages(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
     // get the nix store paths using nix-store --query --references <path>
     let references = Command::new("nix-store")
         .arg("--query")
         .arg("--references")
+        .arg(path.join("sw"))
+        .output();
+
+    if let Ok(query) = references {
+        let list = str::from_utf8(&query.stdout);
+
+        if let Ok(list) = list {
+            let res: Vec<String> = list.lines().map(ToString::to_string).collect();
+            return Ok(res);
+        }
+    }
+    Err(BlaErr::LolErr)
+}
+
+// gets the dependencies of the packages in a closure
+fn get_dependencies(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
+    // get the nix store paths using nix-store --query --references <path>
+    let references = Command::new("nix-store")
+        .arg("--query")
+        .arg("--requisites")
         .arg(path.join("sw"))
         .output();
 

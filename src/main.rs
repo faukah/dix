@@ -190,22 +190,20 @@ fn check_nix_available() -> bool {
 }
 
 fn get_closure_size(path: &std::path::Path) -> u64 {
-    let bytes = Command::new("nix")
+    Command::new("nix")
         .arg("path-info")
         .arg("--closure-size")
         .arg(path.join("sw"))
-        .output();
-
-    if let Ok(size) = bytes {
-        let res = str::from_utf8(&size.stdout);
-        if let Ok(res) = res {
-            let res = res.split_whitespace().last();
-            if let Some(res) = res {
-                if let Ok(res) = res.parse::<u64>() {
-                    return res / 1024 / 1024;
-                }
-            }
-        }
-    }
-    0
+        .output()
+        .ok()
+        .and_then(|output| {
+            str::from_utf8(&output.stdout)
+                .ok()?
+                .split_whitespace()
+                .last()?
+                .parse::<u64>()
+                .ok()
+        })
+        .map(|size| size / 1024 / 1024)
+        .unwrap_or(0)
 }

@@ -1,4 +1,5 @@
 use clap::Parser;
+use colored::Colorize;
 use core::str;
 use regex::Regex;
 use std::{
@@ -64,23 +65,35 @@ fn main() {
         let removed: HashSet<String> = &pre_keys - &post_keys;
 
         println!("Difference between the two generations:");
-        println!("Packages added: ");
+        println!("{}", "Packages added:".underline().bold());
         for p in added {
             let version = post.get(&p);
             if let Some(ver) = version {
-                println!("A: {p} @ {ver}");
+                println!(
+                    "{} {} {} {}",
+                    "[A:]".green().bold(),
+                    p,
+                    "@".yellow().bold(),
+                    ver.cyan()
+                );
             }
         }
         println!();
-        println!("Packages removed: ");
+        println!("{}", "Packages removed:".underline().bold());
         for p in removed {
             let version = pre.get(&p);
             if let Some(ver) = version {
-                println!("R: {p} @ {ver}");
+                println!(
+                    "{} {} {} {}",
+                    "[R:]".red().bold(),
+                    p,
+                    "@".yellow(),
+                    ver.cyan()
+                );
             }
         }
         println!();
-        println!("Version changes: ");
+        println!("{}", "Version changes:".underline().bold());
         for p in maybe_changed {
             if p.is_empty() {
                 continue;
@@ -90,7 +103,16 @@ fn main() {
 
             if let (Some(ver_pre), Some(ver_post)) = (version_pre, version_post) {
                 if ver_pre != ver_post {
-                    println!("C: {p} @ {ver_pre} -> {ver_post}");
+                    // println!("C: {p} @ {ver_pre} -> {ver_post}");
+                    println!(
+                        "{} {} {} {} {} {}",
+                        "[C:]".purple().bold(),
+                        p,
+                        "@".yellow(),
+                        ver_pre.yellow(),
+                        "~>".purple(),
+                        ver_post.cyan()
+                    );
                 }
             }
         }

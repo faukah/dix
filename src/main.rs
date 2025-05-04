@@ -6,6 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     process::Command,
     string::{String, ToString},
+    thread,
 };
 
 #[derive(Parser, Debug)]
@@ -39,6 +40,17 @@ fn main() {
 
     println!("<<< {}", args.path.to_string_lossy());
     println!(">>> {}", args.path2.to_string_lossy());
+
+    // handles to the threads collecting closure size information
+    let mut csize_pre_handle = None;
+    let mut csize_post_handle = None;
+
+    // get closure size in the background to increase performance
+    if args.closure_size {
+        let (p1, p2) = (args.path.clone(), args.path2.clone());
+        csize_pre_handle = Some(thread::spawn(move || get_closure_size(&p1)));
+        csize_post_handle = Some(thread::spawn(move || get_closure_size(&p2)));
+    }
 
     let packages = get_packages(&args.path);
     let packages2 = get_packages(&args.path2);
@@ -124,8 +136,8 @@ fn main() {
             }
         }
         if args.closure_size {
-            let closure_size_pre = get_closure_size(&args.path) as i64;
-            let closure_size_post = get_closure_size(&args.path2) as i64;
+            let closure_size_pre = csize_pre_handle.unwrap().join().unwrap() as i64;
+            let closure_size_post = csize_post_handle.unwrap().join().unwrap() as i64;
 
             println!("{}", "Closure Size:".underline().bold());
 

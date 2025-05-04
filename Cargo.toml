@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.37", features = ["derive"] }
 regex = "1.11.1"
+thiserror = "2.0.12"
 yansi = "1.0.1"

@@ -5,6 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     process::Command,
     string::{String, ToString},
+    sync::OnceLock,
     thread,
 };
 use yansi::Paint;
@@ -91,64 +92,91 @@ fn main() {
     print_changes(changed, &pre, &post);
 
     if let Some((pre_handle, post_handle)) = closure_size_handles {
-        let pre_size = pre_handle.join().unwrap();
-        let post_size = post_handle.join().unwrap();
-
-        println!("{}", "Closure Size:".underline().bold());
-        println!("Before: {pre_size} MiB");
-        println!("After: {post_size} MiB");
-        println!("Difference: {} MiB", post_size - pre_size);
+        match (pre_handle.join(), post_handle.join()) {
+            (Ok(pre_size), Ok(post_size)) => {
+                println!("{}", "Closure Size:".underline().bold());
+                println!("Before: {pre_size} MiB");
+                println!("After: {post_size} MiB");
+                println!("Difference: {} MiB", post_size - pre_size);
+            }
+            _ => {
+                eprintln!("Error: Failed to get closure size information due to a thread error");
+            }
+        }
     }
 }
 
 // gets the packages in a closure
 fn get_packages(path: &std::path::Path) -> Vec<String> {
     // get the nix store paths using nix-store --query --references <path>
-    let references = Command::new("nix-store")
+    let output = Command::new("nix-store")
         .arg("--query")
         .arg("--references")
         .arg(path.join("sw"))
         .output();
 
-    if let Ok(query) = references {
-        let list = str::from_utf8(&query.stdout);
-
-        if let Ok(list) = list {
-            let res: Vec<String> = list.lines().map(ToString::to_string).collect();
-            return res;
+    match output {
+        Ok(query) => {
+            match str::from_utf8(&query.stdout) {
+                Ok(list) => list.lines().map(ToString::to_string).collect(),
+                Err(e) => {
+                    eprintln!("Error decoding command output: {}", e);
+                    Vec::new()
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error executing nix-store command: {}", e);
+            Vec::new()
         }
     }
-    Vec::new()
 }
 
 // gets the dependencies of the packages in a closure
 fn get_dependencies(path: &std::path::Path) -> Vec<String> {
     // get the nix store paths using nix-store --query --references <path>
-    let references = Command::new("nix-store")
+    let output = Command::new("nix-store")
         .arg("--query")
         .arg("--requisites")
         .arg(path.join("sw"))
         .output();
 
-    if let Ok(query) = references {
-        let list = str::from_utf8(&query.stdout);
-
-        if let Ok(list) = list {
-            let res: Vec<String> = list.lines().map(ToString::to_string).collect();
-            return res;
+    match output {
+        Ok(query) => {
+            match str::from_utf8(&query.stdout) {
+                Ok(list) => list.lines().map(ToString::to_string).collect(),
+                Err(e) => {
+                    eprintln!("Error decoding command output: {}", e);
+                    Vec::new()
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error executing nix-store command: {}", e);
+            Vec::new()
         }
     }
-    Vec::new()
+}
+
+// Returns a reference to the compiled regex pattern.
+// The regex is compiled only once.
+fn store_path_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"^/nix/store/[a-z0-9]+-(.+?)-([0-9].*?)$")
+            .expect("Failed to compile regex pattern for nix store paths")
+    })
 }
 
 fn get_version<'a>(pack: impl Into<&'a str>) -> (&'a str, &'a str) {
     // funny regex to split a nix store path into its name and its version.
-    let re = Regex::new(r"^/nix/store/[a-z0-9]+-(.+?)-([0-9].*?)$").unwrap();
-
-    // No cap frfr
-    if let Some(cap) = re.captures(pack.into()) {
-        let name = cap.get(1).unwrap().as_str();
-        let version = cap.get(2).unwrap().as_str();
+    let path = pack.into();
+    
+    // Match the regex against the input
+    if let Some(cap) = store_path_regex().captures(path) {
+        // Handle potential missing captures safely
+        let name = cap.get(1).map_or("", |m| m.as_str());
+        let version = cap.get(2).map_or("", |m| m.as_str());
         return (name, version);
     }
 
@@ -164,21 +192,54 @@ fn check_nix_available() -> bool {
 }
 
 fn get_closure_size(path: &std::path::Path) -> i64 {
-    Command::new("nix")
+    // Run nix path-info command to get closure size
+    match Command::new("nix")
         .arg("path-info")
         .arg("--closure-size")
         .arg(path.join("sw"))
         .output()
-        .ok()
-        .and_then(|output| {
-            str::from_utf8(&output.stdout)
-                .ok()?
-                .split_whitespace()
-                .last()?
-                .parse::<i64>()
-                .ok()
-        })
-        .map_or(0, |size| size / 1024 / 1024)
+    {
+        Ok(output) if output.status.success() => {
+            // Parse command output to extract the size
+            match str::from_utf8(&output.stdout) {
+                Ok(stdout) => {
+                    // Parse the last word in the output as an integer
+                    stdout
+                        .split_whitespace()
+                        .last()
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .map_or_else(
+                            || {
+                                eprintln!("Failed to parse closure size from output: {}", stdout);
+                                0
+                            },
+                            |size| size / 1024 / 1024, // Convert to MiB
+                        )
+                }
+                Err(e) => {
+                    eprintln!("Error decoding command output: {}", e);
+                    0
+                }
+            }
+        }
+        Ok(output) => {
+            // Command ran but returned an error
+            match str::from_utf8(&output.stderr) {
+                Ok(stderr) if !stderr.is_empty() => {
+                    eprintln!("nix path-info command failed: {}", stderr);
+                }
+                _ => {
+                    eprintln!("nix path-info command failed with status: {}", output.status);
+                }
+            }
+            0
+        }
+        Err(e) => {
+            // Command failed to run
+            eprintln!("Failed to execute nix path-info command: {}", e);
+            0
+        }
+    }
 }
 
 fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
@@ -224,21 +285,21 @@ fn print_changes(
             continue;
         }
 
-        // can not fail since maybe_changed is the union of the keys of pre and post
-        let ver_pre = pre.get(p).unwrap();
-        let ver_post = post.get(p).unwrap();
-        let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ");
-        let version_str_post = ver_post.iter().copied().collect::<Vec<_>>().join(", ");
+        // We should handle the case where the package might not exist in one of the maps
+        if let (Some(ver_pre), Some(ver_post)) = (pre.get(p), post.get(p)) {
+            let version_str_pre = ver_pre.iter().copied().collect::<Vec<_>>().join(" ");
+            let version_str_post = ver_post.iter().copied().collect::<Vec<_>>().join(", ");
 
-        if ver_pre != ver_post {
-            println!(
-                "{} {} {} {} ~> {}",
-                "[C:]".bold().bright_yellow(),
-                p,
-                "@".yellow(),
-                version_str_pre.magenta(),
-                version_str_post.blue()
-            );
+            if ver_pre != ver_post {
+                println!(
+                    "{} {} {} {} ~> {}",
+                    "[C:]".bold().bright_yellow(),
+                    p,
+                    "@".yellow(),
+                    version_str_pre.magenta(),
+                    version_str_post.blue()
+                );
+            }
         }
     }
 }

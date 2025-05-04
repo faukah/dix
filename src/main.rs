@@ -1,7 +1,12 @@
 use clap::Parser;
 use core::str;
 use regex::Regex;
-use std::{collections::HashSet, hash::Hash, process::Command, string::String};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    process::Command,
+    string::String,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -31,52 +36,62 @@ fn main() {
 
     println!("Nix available: {}", check_nix_available());
 
-    println!("Checking path one:");
-    println!(
-        "Path one is a system: {}",
-        &args.path.join("activate").exists()
-    );
-
-    println!("Checking path two:");
-    println!(
-        "Path two is a system: {}",
-        &args.path2.join("activate").exists()
-    );
+    println!("<<< {}", args.path.to_string_lossy());
+    println!(">>> {}", args.path2.to_string_lossy());
 
     if check_if_system(&args.path) && check_if_system(&args.path2) {
         let packages = get_packages(&args.path);
         let packages2 = get_packages(&args.path2);
 
         if let (Ok(packages), Ok(packages2)) = (packages, packages2) {
-            let pre_packages: HashSet<Package> = packages.iter().map(|p| get_version(p)).collect();
-            let post_packages: HashSet<Package> =
-                packages2.iter().map(|p| get_version(p)).collect();
+            let mut pre: HashMap<String, String> = HashMap::new();
+            let mut post: HashMap<String, String> = HashMap::new();
 
-            let added: HashSet<_> = pre_packages.difference(&post_packages).collect();
-            let removed: HashSet<_> = post_packages.difference(&pre_packages).collect();
+            for p in packages.iter() {
+                let version = get_version(p);
+                pre.insert(version.0.to_string(), version.1.to_string());
+            }
+
+            for p in packages2.iter() {
+                let version = get_version(p);
+                post.insert(version.0.to_string(), version.1.to_string());
+            }
+
+            let pre_keys: HashSet<String> = pre.clone().into_keys().collect();
+            let post_keys: HashSet<String> = post.clone().into_keys().collect();
+
+            let added: HashSet<String> = &post_keys - &pre_keys;
+            let removed: HashSet<String> = &pre_keys - &post_keys;
+            let maybe_changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
 
             println!("Difference between the two generations:");
             println!("Packages added: ");
-            if args.paths {
-                for p in added.iter() {
-                    println!("A: {:?}", p);
+            for p in added {
+                let version = post.get(&p);
+                if let Some(ver) = version {
+                    println!("A: {} @ {}", p, ver);
                 }
-                println!();
-                println!("Packages removed: ");
-                for p in removed.iter() {
-                    println!("R: {:?}", p);
+            }
+            println!();
+            println!("Packages removed: ");
+            for p in removed {
+                let version = pre.get(&p);
+                if let Some(ver) = version {
+                    println!("R: {} @ {}", p, ver);
                 }
-            } else {
-                for p in added.iter() {
-                    if !p.name.is_empty() {
-                        println!("A: {} @ {}", p.name, p.version);
-                    }
+            }
+            println!();
+            println!("Version changes: ");
+            for p in maybe_changed {
+                if p.is_empty() {
+                    continue;
                 }
-                println!();
-                println!("Packages removed: ");
-                for p in removed.iter() {
-                    if !p.name.is_empty() {
-                        println!("R: {} @ {}", p.name, p.version);
+                let version_pre = pre.get(p);
+                let version_post = post.get(p);
+
+                if let (Some(ver_pre), Some(ver_post)) = (version_pre, version_post) {
+                    if ver_pre != ver_post {
+                        println!("C: {} @ {} -> {}", p, ver_pre, ver_post);
                     }
                 }
             }
@@ -108,21 +123,17 @@ fn get_packages(path: &std::path::Path) -> Result<Vec<String>, BlaErr> {
     Err(BlaErr::LolErr)
 }
 
-fn get_version(pack: &str) -> Package {
-    // This is bound to break sooner or later
-    let re = Regex::new(r"^/nix/store/[a-z0-9]+-([^-]+(?:-[^-]+)*)-([\d][^/]*)$").unwrap();
+fn get_version(pack: &str) -> (&str, &str) {
+    let re = Regex::new(r"^/nix/store/[a-z0-9]+-(.+?)-([0-9].*?)$").unwrap();
 
     // No cap frfr
     if let Some(cap) = re.captures(pack) {
         let name = cap.get(1).unwrap().as_str();
         let version = cap.get(2).unwrap().as_str();
-        return Package { name, version };
+        return (name, version);
     }
 
-    Package {
-        name: "",
-        version: "",
-    }
+    ("", "")
 }
 
 fn check_nix_available() -> bool {

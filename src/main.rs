@@ -57,43 +57,40 @@ fn main() {
 
     if let (Ok(packages), Ok(packages2)) = (packages, packages2) {
         // Map from packages of the first closure to their version
-        let pre: HashMap<String, String> = packages
-            .into_iter()
-            .map(|p| {
-                let (name, version) = get_version(&*p);
-                (name.to_string(), version.to_string())
-            })
-            .collect();
+        let mut pre = HashMap::<&str, HashSet<&str>>::new();
+        for p in &packages {
+            let (name, version) = get_version(&**p);
+            pre.entry(name).or_default().insert(version);
+        }
 
-        let post: HashMap<String, String> = packages2
-            .into_iter()
-            .map(|p| {
-                let (name, version) = get_version(&*p);
-                (name.to_string(), version.to_string())
-            })
-            .collect();
+        let mut post = HashMap::<&str, HashSet<&str>>::new();
+        for p in &packages2 {
+            let (name, version) = get_version(&**p);
+            post.entry(name).or_default().insert(version);
+        }
 
         // Compare the package names of both versions
-        let pre_keys: HashSet<String> = pre.keys().map(|k| k.clone()).collect();
-        let post_keys: HashSet<String> = post.keys().map(|k| k.clone()).collect();
+        let pre_keys: HashSet<&str> = pre.keys().map(|k| *k).collect();
+        let post_keys: HashSet<&str> = post.keys().map(|k| *k).collect();
         // get the intersection of the package names for version changes
         let maybe_changed: HashSet<_> = pre_keys.intersection(&post_keys).collect();
 
         // difference gives us added and removed packages
-        let added: HashSet<String> = &post_keys - &pre_keys;
-        let removed: HashSet<String> = &pre_keys - &post_keys;
+        let added: HashSet<&str> = &post_keys - &pre_keys;
+        let removed: HashSet<&str> = &pre_keys - &post_keys;
 
         println!("Difference between the two generations:");
         println!("{}", "Packages added:".underline().bold());
         for p in added {
-            let version = post.get(&p);
-            if let Some(ver) = version {
+            let versions = post.get(&p);
+            if let Some(ver) = versions {
+                let version_str = ver.iter().map(|v| *v).collect::<Vec<_>>().join(" ").cyan();
                 println!(
                     "{} {} {} {}",
                     "[A:]".green().bold(),
                     p,
                     "@".yellow().bold(),
-                    ver.cyan()
+                    version_str
                 );
             }
         }
@@ -102,12 +99,13 @@ fn main() {
         for p in removed {
             let version = pre.get(&p);
             if let Some(ver) = version {
+                let version_str = ver.iter().map(|v| *v).collect::<Vec<_>>().join(" ").cyan();
                 println!(
                     "{} {} {} {}",
                     "[R:]".red().bold(),
                     p,
                     "@".yellow(),
-                    ver.cyan()
+                    version_str
                 );
             }
         }
@@ -121,6 +119,18 @@ fn main() {
             // can not fail since maybe_changed is the union of the keys of pre and post
             let ver_pre = pre.get(p).unwrap();
             let ver_post = post.get(p).unwrap();
+            let version_str_pre = ver_pre
+                .iter()
+                .map(|v| *v)
+                .collect::<Vec<_>>()
+                .join(" ")
+                .cyan();
+            let version_str_post = ver_post
+                .iter()
+                .map(|v| *v)
+                .collect::<Vec<_>>()
+                .join(" ")
+                .cyan();
 
             if ver_pre != ver_post {
                 // println!("C: {p} @ {ver_pre} -> {ver_post}");
@@ -129,9 +139,9 @@ fn main() {
                     "[C:]".purple().bold(),
                     p,
                     "@".yellow(),
-                    ver_pre.yellow(),
+                    version_str_pre.yellow(),
                     "~>".purple(),
-                    ver_post.cyan()
+                    version_str_post.cyan()
                 );
             }
         }

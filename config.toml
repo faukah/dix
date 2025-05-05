@@ -1,2 +1,0 @@
-[env]
-DATABASE_URL="sqlite:///nix/var/nix/db/db.sqlite"

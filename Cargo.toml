@@ -10,5 +10,4 @@ yansi = "1.0.1"
 thiserror = "2.0.12"
 log = "0.4.20"
 env_logger = "0.11.3"
-sqlx = { version = "0.8.5", features = ["runtime-async-std", "sqlite"] }
-async-std = "1.13.1"
+rusqlite = { version = "0.35.0", features = ["bundled"] }

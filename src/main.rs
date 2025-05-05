@@ -227,7 +227,6 @@ fn main() {
         debug!("Calculating closure sizes in background");
         let path = args.path.clone();
         let path2 = args.path2.clone();
-        dbg!(&path);
         Some((
             thread::spawn(move || store::get_closure_size(&path)),
             thread::spawn(move || store::get_closure_size(&path2)),
@@ -257,7 +256,7 @@ fn main() {
         }
     };
 
-    let package_list_post = match get_packages(&args.path2) {
+    let package_list_post = match store::get_packages(&args.path2) {
         Ok(packages) => {
             debug!("Found {} packages in second closure", packages.len());
             packages
@@ -352,6 +351,8 @@ fn main() {
     if let Some((pre_handle, post_handle)) = closure_size_handles {
         match (pre_handle.join(), post_handle.join()) {
             (Ok(Ok(pre_size)), Ok(Ok(post_size))) => {
+                let pre_size = pre_size / 1024 / 1024;
+                let post_size = post_size / 1024 / 1024;
                 debug!("Pre closure size: {} MiB", pre_size);
                 debug!("Post closure size: {} MiB", post_size);
 
@@ -370,37 +371,6 @@ fn main() {
             }
         }
     }
-}
-
-/// Gets the packages in a closure
-fn get_packages(path: &std::path::Path) -> Result<Vec<String>> {
-    debug!("Getting packages from path: {}", path.display());
-
-    // Get the nix store paths using `nix-store --query --references <path>``
-    let output = Command::new("nix-store")
-        .arg("--query")
-        .arg("--references")
-        .arg(path.join("sw"))
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        error!("nix-store command failed: {}", stderr);
-        return Err(AppError::CommandFailed {
-            command: "nix-store".to_string(),
-            args: vec![
-                "--query".to_string(),
-                "--references".to_string(),
-                path.join("sw").to_string_lossy().to_string(),
-            ],
-            message: stderr.to_string(),
-        });
-    }
-
-    let list = str::from_utf8(&output.stdout)?;
-    let packages: Vec<String> = list.lines().map(str::to_owned).collect();
-    debug!("Found {} packages", packages.len());
-    Ok(packages)
 }
 
 /// Gets the dependencies of the packages in a closure
@@ -484,60 +454,4 @@ fn check_nix_available() -> bool {
     }
 
     result
-}
-
-fn get_closure_size(path: &std::path::Path) -> Result<i64> {
-    debug!("Calculating closure size for path: {}", path.display());
-
-    // Run nix path-info command to get closure size
-    let output = Command::new("nix")
-        .arg("path-info")
-        .arg("--closure-size")
-        .arg(path.join("sw"))
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        error!("nix path-info command failed: {}", stderr);
-        return Err(AppError::CommandFailed {
-            command: "nix".to_string(),
-            args: vec![
-                "path-info".to_string(),
-                "--closure-size".to_string(),
-                path.join("sw").to_string_lossy().to_string(),
-            ],
-            message: stderr.to_string(),
-        });
-    }
-
-    let stdout = str::from_utf8(&output.stdout)?;
-
-    // Parse the last word in the output as an integer (in bytes)
-    let size = stdout
-        .split_whitespace()
-        .last()
-        .ok_or_else(|| {
-            let err = "Unexpected output format from nix path-info";
-            error!("{}", err);
-            AppError::ParseError {
-                message: err.into(),
-                context: "get_closure_size".to_string(),
-                source: None,
-            }
-        })?
-        .parse::<i64>()
-        .map_err(|e| {
-            let err = format!("Failed to parse size value: {e}");
-            error!("{}", err);
-            AppError::ParseError {
-                message: err,
-                context: "get_closure_size".to_string(),
-                source: None,
-            }
-        })?;
-
-    // Convert to MiB
-    let size_mib = size / 1024 / 1024;
-    debug!("Closure size for {}: {} MiB", path.display(), size_mib);
-    Ok(size_mib)
 }

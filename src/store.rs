@@ -8,8 +8,11 @@ use std::future;
 //
 // in the future, we might wan't to switch to async
 pub fn get_packages(path: &std::path::Path) -> Result<Vec<String>, String> {
-    let p = path.canonicalize().unwrap();
-    let p = p.to_str().unwrap();
+    let p = path
+        .canonicalize()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or("Could not convert resolve path")?;
 
     task::block_on(async {
         struct Col {
@@ -52,9 +55,11 @@ JOIN ValidPaths ON id = p;
 //
 // in the future, we might wan't to switch to async
 pub fn get_closure_size(path: &std::path::Path) -> Result<i64, String> {
-    let p = path.canonicalize().unwrap();
-    let p = p.to_str().unwrap();
-    dbg!(p);
+    let p = path
+        .canonicalize()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or("Could not convert resolve path")?;
     let size = task::block_on(async {
         struct Res {
             sum: Option<i64>,
@@ -86,7 +91,6 @@ JOIN ValidPaths ON p = id;
         .ok_or("Could not get closure size sum")?;
         Ok::<_, String>(query_res)
     });
-    dbg!(&size);
     size
 }
 

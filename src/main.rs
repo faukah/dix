@@ -316,11 +316,11 @@ fn main() {
         "Changed packages: {}",
         changed
             .iter()
-            .filter(|p| !p.is_empty())
-            .filter_map(|p| match (pre.get(p), post.get(p)) {
-                (Some(ver_pre), Some(ver_post)) if ver_pre != ver_post => Some(p),
-                _ => None,
-            })
+            .filter(|p| !p.is_empty()
+                && match (pre.get(*p), post.get(*p)) {
+                    (Some(ver_pre), Some(ver_post)) => ver_pre != ver_post,
+                    _ => false,
+                })
             .count()
     );
 

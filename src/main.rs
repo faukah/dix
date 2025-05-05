@@ -142,7 +142,7 @@ impl AppError {
 type Result<T> = std::result::Result<T, AppError>;
 
 #[derive(Parser, Debug)]
-#[command(name = "Nix not Python diff tool")]
+#[command(name = "nix-diff")]
 #[command(version = "1.0")]
 #[command(about = "Diff two different system closures", long_about = None)]
 #[command(version, about, long_about = None)]
@@ -328,7 +328,7 @@ fn main() {
     println!("Difference between the two generations:");
     println!();
 
-    let mut width_changes = changed
+    let width_changes = changed
         .iter()
         .filter(|&&p| match (pre.get(p), post.get(p)) {
             (Some(version_pre), Some(version_post)) => version_pre != version_post,

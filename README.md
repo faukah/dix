@@ -1,5 +1,7 @@
-# Nix not Python diff tool
+# nix-diff
+
+## diff nix system closures
 
 ## Usage
 
-`nnpdt /nix/var/profiles/system-<version>-link /run/current-system`
+`nix-diff /nix/var/profiles/system-<version>-link /run/current-system`

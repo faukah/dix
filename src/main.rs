@@ -326,11 +326,26 @@ fn main() {
     println!("Difference between the two generations:");
     println!();
 
-    print_added(added, &post);
+    let mut width_changes = changed
+        .iter()
+        .filter(|&&p| match (pre.get(p), post.get(p)) {
+            (Some(version_pre), Some(version_post)) => version_pre != version_post,
+            _ => false,
+        });
+
+    let col_width = added
+        .iter()
+        .chain(removed.iter())
+        .chain(width_changes)
+        .map(|p| p.len())
+        .max()
+        .unwrap_or_default();
+
+    print_added(added, &post, col_width);
     println!();
-    print_removed(removed, &pre);
+    print_removed(removed, &pre, col_width);
     println!();
-    print_changes(changed, &pre, &post);
+    print_changes(changed, &pre, &post, col_width);
 
     if let Some((pre_handle, post_handle)) = closure_size_handles {
         match (pre_handle.join(), post_handle.join()) {
@@ -525,7 +540,7 @@ fn get_closure_size(path: &std::path::Path) -> Result<i64> {
     Ok(size_mib)
 }
 
-fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
+fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col_width: usize) {
     println!("{}", "Packages added:".underline().bold());
 
     // Use sorted outpu
@@ -536,8 +551,6 @@ fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
 
     // Sort by package name for consistent output
     sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
-    // make the columns as wide as the widest package name
-    let col_width = set.iter().map(|p| p.len()).max().unwrap_or_default();
 
     for (p, ver) in sorted {
         let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
@@ -551,7 +564,7 @@ fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
     }
 }
 
-fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
+fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, col_width: usize) {
     println!("{}", "Packages removed:".underline().bold());
 
     // Use sorted output for more predictable and readable results
@@ -562,9 +575,6 @@ fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
 
     // Sort by package name for consistent output
     sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
-
-    // make the columns as wide as the widest package name
-    let col_width = set.iter().map(|p| p.len()).max().unwrap_or_default();
 
     for (p, ver) in sorted {
         let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
@@ -582,20 +592,17 @@ fn print_changes(
     set: HashSet<&str>,
     pre: &HashMap<&str, HashSet<&str>>,
     post: &HashMap<&str, HashSet<&str>>,
+    col_width: usize,
 ) {
     println!("{}", "Version changes:".underline().bold());
 
     // Use sorted output for more predictable and readable results
     let mut changes = Vec::new();
 
-    // make the column as wide as the longest package name
-    let mut col_width = 0;
-
     for p in set.iter().filter(|p| !p.is_empty()) {
         if let (Some(ver_pre), Some(ver_post)) = (pre.get(p), post.get(p)) {
             if ver_pre != ver_post {
                 changes.push((*p, ver_pre, ver_post));
-                col_width = std::cmp::max(col_width, p.len());
             }
         }
     }

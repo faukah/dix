@@ -19,8 +19,8 @@ pub fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col_
         version_vec.sort_unstable();
         let version_str = version_vec.join(", ");
         println!(
-            "{} {:col_width$} {} {}",
-            "[A:]".green().bold(),
+            "[{}] {:col_width$} {} {}",
+            "A:".green().bold(),
             p,
             "@".yellow().bold(),
             version_str.blue()
@@ -45,8 +45,8 @@ pub fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, col
         version_vec.sort_unstable();
         let version_str = version_vec.join(", ");
         println!(
-            "{} {:col_width$} {} {}",
-            "[R:]".red().bold(),
+            "[{}] {:col_width$} {} {}",
+            "R:".red().bold(),
             p,
             "@".yellow(),
             version_str.blue()
@@ -86,8 +86,8 @@ pub fn print_changes(
         let version_str_post = version_vec_post.join(", ");
 
         println!(
-            "{} {:col_width$} {} {} ~> {}",
-            "[C:]".bold().bright_yellow(),
+            "[{}] {:col_width$} {} {} ~> {}",
+            "C:".bold().bright_yellow(),
             p,
             "@".yellow(),
             version_str_pre.magenta(),

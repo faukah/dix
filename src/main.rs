@@ -536,11 +536,13 @@ fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>) {
 
     // Sort by package name for consistent output
     sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+    // make the columns as wide as the widest package name
+    let col_width = set.iter().map(|p| p.len()).max().unwrap_or_default();
 
     for (p, ver) in sorted {
         let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
         println!(
-            "{} {} {} {}",
+            "{} {:col_width$} {} {}",
             "[A:]".green().bold(),
             p,
             "@".yellow().bold(),
@@ -561,10 +563,13 @@ fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>) {
     // Sort by package name for consistent output
     sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
 
+    // make the columns as wide as the widest package name
+    let col_width = set.iter().map(|p| p.len()).max().unwrap_or_default();
+
     for (p, ver) in sorted {
         let version_str = ver.iter().copied().collect::<Vec<_>>().join(" ");
         println!(
-            "{} {} {} {}",
+            "{} {:col_width$} {} {}",
             "[R:]".red().bold(),
             p,
             "@".yellow(),
@@ -583,10 +588,14 @@ fn print_changes(
     // Use sorted output for more predictable and readable results
     let mut changes = Vec::new();
 
+    // make the column as wide as the longest package name
+    let mut col_width = 0;
+
     for p in set.iter().filter(|p| !p.is_empty()) {
         if let (Some(ver_pre), Some(ver_post)) = (pre.get(p), post.get(p)) {
             if ver_pre != ver_post {
                 changes.push((*p, ver_pre, ver_post));
+                col_width = std::cmp::max(col_width, p.len());
             }
         }
     }
@@ -599,7 +608,7 @@ fn print_changes(
         let version_str_post = ver_post.iter().copied().collect::<Vec<_>>().join(", ");
 
         println!(
-            "{} {} {} {} ~> {}",
+            "{} {:col_width$} {} {} ~> {}",
             "[C:]".bold().bright_yellow(),
             p,
             "@".yellow(),

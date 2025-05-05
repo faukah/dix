@@ -13,6 +13,7 @@ use std::{
 };
 use thiserror::Error;
 use yansi::Paint;
+mod store;
 
 /// Application errors with thiserror
 #[derive(Debug, Error)]
@@ -226,16 +227,17 @@ fn main() {
         debug!("Calculating closure sizes in background");
         let path = args.path.clone();
         let path2 = args.path2.clone();
+        dbg!(&path);
         Some((
-            thread::spawn(move || get_closure_size(&path)),
-            thread::spawn(move || get_closure_size(&path2)),
+            thread::spawn(move || store::get_closure_size(&path)),
+            thread::spawn(move || store::get_closure_size(&path2)),
         ))
     } else {
         None
     };
 
     // Get package lists and handle potential errors
-    let package_list_pre = match get_packages(&args.path) {
+    let package_list_pre = match store::get_packages(&args.path) {
         Ok(packages) => {
             debug!("Found {} packages in first closure", packages.len());
             packages

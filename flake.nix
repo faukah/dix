@@ -20,6 +20,7 @@
           inherit
             (pkgsFor.${system})
             cargo
+            sqlx-cli
             rustc
             rustfmt
             bacon

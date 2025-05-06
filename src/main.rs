@@ -1,11 +1,10 @@
 mod print;
 use clap::Parser;
 use core::str;
-use log::{debug, error, warn};
+use log::{debug, error};
 use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
-    process::Command,
     string::ToString,
     sync::OnceLock,
     thread,
@@ -93,10 +92,8 @@ fn main() {
         .format_timestamp(Some(env_logger::fmt::TimestampPrecision::Seconds))
         .init();
 
-    debug!("Nix available: {}", check_nix_available()); // XXX: is this supposed to be user-facing?
     println!("<<< {}", args.path.to_string_lossy());
     println!(">>> {}", args.path2.to_string_lossy());
-
 
     // handles to the threads collecting closure size information
     // We do this as early as possible because nix is slow.
@@ -222,9 +219,9 @@ fn main() {
         .max()
         .unwrap_or_default();
 
-    print::print_added(added, &post, col_width);
-    print::print_removed(removed, &pre, col_width);
-    print::print_changes(changed, &pre, &post, col_width);
+    print::print_added(&added, &post, col_width);
+    print::print_removed(&removed, &pre, col_width);
+    print::print_changes(&changed, &pre, &post, col_width);
 
     if let Some((pre_handle, post_handle)) = closure_size_handles {
         match (pre_handle.join(), post_handle.join()) {
@@ -261,7 +258,14 @@ fn store_path_regex() -> &'static Regex {
     })
 }
 
-// Parse the nix store path to extract package name and version
+/// Parses a nix store path to extract the packages name and version
+///
+/// This function first drops the inputs first 44 chars, since that is exactly the length of the /nix/store/... prefix. Then it matches that against our store path regex.
+///
+/// # Returns
+///
+/// * Result<(&'a str, &'a str)> - The Package's name and version, or an error if
+///   one or both cannot be retrieved.
 fn get_version<'a>(pack: impl Into<&'a str>) -> Result<(&'a str, &'a str)> {
     let path = pack.into();
 
@@ -293,18 +297,4 @@ fn get_version<'a>(pack: impl Into<&'a str>) -> Result<(&'a str, &'a str)> {
         context: "get_version".to_string(),
         source: None,
     })
-}
-
-fn check_nix_available() -> bool {
-    // Check if nix is available on the host system.
-    debug!("Checking nix command availability");
-    let nix_available = Command::new("nix").arg("--version").output().ok();
-    let nix_query_available = Command::new("nix-store").arg("--version").output().ok();
-
-    let result = nix_available.is_some() && nix_query_available.is_some();
-    if !result {
-        warn!("Nix commands not available, functionality may be limited");
-    }
-
-    result
 }

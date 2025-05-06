@@ -2,6 +2,12 @@ use core::str;
 use std::collections::{HashMap, HashSet};
 use yansi::Paint;
 
+/// diffs two strings character by character, and returns a tuple of strings
+/// colored in a way to represent the differences between the two input strings.
+///
+/// # Returns:
+///
+/// * (String, String) - The differing chars being red in the left, and green in the right one.
 fn diff_versions(left: &str, right: &str) -> (String, String) {
     let mut prev = String::new();
     let mut post = String::new();
@@ -31,7 +37,8 @@ fn diff_versions(left: &str, right: &str) -> (String, String) {
     (prev, post)
 }
 
-pub fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col_width: usize) {
+/// print the packages added between two closures.
+pub fn print_added(set: &HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col_width: usize) {
     println!("{}", "Packages added:".underline().bold());
 
     // Use sorted outpu
@@ -57,7 +64,8 @@ pub fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col_
     }
 }
 
-pub fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, col_width: usize) {
+/// print the packages removed between two closures.
+pub fn print_removed(set: &HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, col_width: usize) {
     println!("{}", "Packages removed:".underline().bold());
 
     // Use sorted output for more predictable and readable results
@@ -84,7 +92,7 @@ pub fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, col
 }
 
 pub fn print_changes(
-    set: HashSet<&str>,
+    set: &HashSet<&str>,
     pre: &HashMap<&str, HashSet<&str>>,
     post: &HashMap<&str, HashSet<&str>>,
     col_width: usize,

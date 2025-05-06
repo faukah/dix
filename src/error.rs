@@ -38,9 +38,6 @@ pub enum AppError {
 
     #[error("Database error: {source}")]
     DatabaseError { source: rusqlite::Error },
-
-    #[error("Nix store error: {message} for path: {store_path}")]
-    NixStoreError { message: String, store_path: String },
 }
 
 // Implement From traits to support the ? operator
@@ -121,14 +118,6 @@ impl AppError {
         Self::CommandOutputError {
             source,
             context: context.into(),
-        }
-    }
-
-    /// Create a Nix store error
-    pub fn nix_store_error<M: Into<String>, P: Into<String>>(message: M, store_path: P) -> Self {
-        Self::NixStoreError {
-            message: message.into(),
-            store_path: store_path.into(),
         }
     }
 }

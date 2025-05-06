@@ -1,12 +1,12 @@
 mod print;
 use clap::Parser;
 use core::str;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
     process::Command,
-    string::{String, ToString},
+    string::ToString,
     sync::OnceLock,
     thread,
 };
@@ -162,7 +162,7 @@ fn main() {
                 pre.entry(name).or_default().insert(version);
             }
             Err(e) => {
-                debug!("Error parsing package version: {}", e);
+                debug!("Error parsing package version: {e}");
             }
         }
     }
@@ -173,7 +173,7 @@ fn main() {
                 post.entry(name).or_default().insert(version);
             }
             Err(e) => {
-                debug!("Error parsing package version: {}", e);
+                debug!("Error parsing package version: {e}");
             }
         }
     }
@@ -229,8 +229,8 @@ fn main() {
             (Ok(Ok(pre_size)), Ok(Ok(post_size))) => {
                 let pre_size = pre_size / 1024 / 1024;
                 let post_size = post_size / 1024 / 1024;
-                debug!("Pre closure size: {} MiB", pre_size);
-                debug!("Post closure size: {} MiB", post_size);
+                debug!("Pre closure size: {pre_size} MiB");
+                debug!("Post closure size: {post_size} MiB");
 
                 println!("{}", "Closure Size:".underline().bold());
                 println!("Before: {pre_size} MiB");
@@ -238,7 +238,7 @@ fn main() {
                 println!("Difference: {} MiB", post_size - pre_size);
             }
             (Ok(Err(e)), _) | (_, Ok(Err(e))) => {
-                error!("Error getting closure size: {}", e);
+                error!("Error getting closure size: {e}");
                 eprintln!("Error getting closure size: {e}");
             }
             _ => {
@@ -247,37 +247,6 @@ fn main() {
             }
         }
     }
-}
-
-/// Gets the dependencies of the packages in a closure
-fn get_dependencies(path: &std::path::Path) -> Result<Vec<String>> {
-    debug!("Getting dependencies from path: {}", path.display());
-
-    // Get the nix store paths using `nix-store --query --requisites <path>`
-    let output = Command::new("nix-store")
-        .arg("--query")
-        .arg("--requisites")
-        .arg(path.join("sw"))
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        error!("nix-store command failed: {}", stderr);
-        return Err(AppError::CommandFailed {
-            command: "nix-store".to_string(),
-            args: vec![
-                "--query".to_string(),
-                "--requisites".to_string(),
-                path.join("sw").to_string_lossy().to_string(),
-            ],
-            message: stderr.to_string(),
-        });
-    }
-
-    let list = str::from_utf8(&output.stdout)?;
-    let dependencies: Vec<String> = list.lines().map(str::to_owned).collect();
-    debug!("Found {} dependencies", dependencies.len());
-    Ok(dependencies)
 }
 
 // Returns a reference to the compiled regex pattern.

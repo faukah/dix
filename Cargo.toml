@@ -11,3 +11,4 @@ thiserror = "2.0.12"
 log = "0.4.20"
 env_logger = "0.11.3"
 rusqlite = { version = "0.35.0", features = ["bundled"] }
+diff = "0.1.13"

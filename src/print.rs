@@ -2,6 +2,35 @@ use core::str;
 use std::collections::{HashMap, HashSet};
 use yansi::Paint;
 
+fn diff_versions(left: &str, right: &str) -> (String, String) {
+    let mut prev = String::new();
+    let mut post = String::new();
+
+    for diff in diff::chars(left, right) {
+        match diff {
+            diff::Result::Both(l, _) => {
+                prev.push(l);
+                post.push(l);
+            }
+            diff::Result::Left(l) => {
+                let string_to_push = format!("\x1b[31m{l}");
+                prev.push_str(&string_to_push);
+            }
+
+            diff::Result::Right(r) => {
+                let string_to_push = format!("\x1b[32m{r}");
+                post.push_str(&string_to_push);
+            }
+        }
+    }
+
+    //reset
+    prev.push_str("\x1b[0m");
+    post.push_str("\x1b[0m");
+
+    (prev, post)
+}
+
 pub fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col_width: usize) {
     println!("{}", "Packages added:".underline().bold());
 
@@ -23,7 +52,7 @@ pub fn print_added(set: HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col_
             "A:".green().bold(),
             p,
             "@".yellow().bold(),
-            version_str.blue()
+            version_str
         );
     }
 }
@@ -49,7 +78,7 @@ pub fn print_removed(set: HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, col
             "R:".red().bold(),
             p,
             "@".yellow(),
-            version_str.blue()
+            version_str
         );
     }
 }
@@ -78,20 +107,38 @@ pub fn print_changes(
 
     for (p, ver_pre, ver_post) in changes {
         let mut version_vec_pre = ver_pre.iter().copied().collect::<Vec<_>>();
-        version_vec_pre.sort_unstable();
-        let version_str_pre = version_vec_pre.join(", ");
         let mut version_vec_post = ver_post.iter().copied().collect::<Vec<_>>();
 
+        version_vec_pre.sort_unstable();
         version_vec_post.sort_unstable();
-        let version_str_post = version_vec_post.join(", ");
+
+        let diffed_pre: String;
+        let diffed_post: String;
+
+        if version_vec_pre.len() == version_vec_post.len() {
+            let mut diff_pre: Vec<String> = vec![];
+            let mut diff_post: Vec<String> = vec![];
+
+            for (pre, post) in version_vec_pre.iter().zip(version_vec_post.iter()) {
+                let (a, b) = diff_versions(pre, post);
+                diff_pre.push(a);
+                diff_post.push(b);
+            }
+            diffed_pre = diff_pre.join(", ");
+            diffed_post = diff_post.join(", ");
+        } else {
+            let version_str_pre = version_vec_pre.join(", ");
+            let version_str_post = version_vec_post.join(", ");
+            (diffed_pre, diffed_post) = diff_versions(&version_str_pre, &version_str_post);
+        }
 
         println!(
             "[{}] {:col_width$} {} {} ~> {}",
             "C:".bold().bright_yellow(),
             p,
             "@".yellow(),
-            version_str_pre.magenta(),
-            version_str_post.blue()
+            diffed_pre,
+            diffed_post
         );
     }
 }

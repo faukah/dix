@@ -104,6 +104,7 @@ pub fn get_dependency_graph(path: &std::path::Path) -> Result<HashMap<i64, Vec<i
     for row in queried_sum {
         let (from, to) = row?;
         adj.entry(from).or_default().push(to);
+        adj.entry(to).or_default();
     }
 
     Ok(adj)

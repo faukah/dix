@@ -60,6 +60,7 @@ SELECT p, c from graph;
 ///
 /// in the future, we might wan't to switch to async
 pub fn get_packages(path: &std::path::Path) -> Result<Vec<(i64, String)>> {
+    // resolve symlinks and convert to a string
     let p: String = path.canonicalize()?.to_string_lossy().into_owned();
     let conn = Connection::open(DATABASE_URL)?;
 
@@ -77,6 +78,7 @@ pub fn get_packages(path: &std::path::Path) -> Result<Vec<(i64, String)>> {
 ///
 /// in the future, we might wan't to switch to async
 pub fn get_closure_size(path: &std::path::Path) -> Result<i64> {
+    // resolve symlinks and convert to a string
     let p: String = path.canonicalize()?.to_string_lossy().into_owned();
     let conn = Connection::open(DATABASE_URL)?;
 
@@ -95,6 +97,7 @@ pub fn get_closure_size(path: &std::path::Path) -> Result<i64> {
 ///
 /// The mapping from id to graph can be obtained by using [``get_packages``]
 pub fn get_dependency_graph(path: &std::path::Path) -> Result<HashMap<i64, Vec<i64>>> {
+    // resolve symlinks and convert to a string
     let p: String = path.canonicalize()?.to_string_lossy().into_owned();
     let conn = Connection::open(DATABASE_URL)?;
 

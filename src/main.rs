@@ -254,7 +254,7 @@ fn main() {
 fn store_path_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        Regex::new(r"^/nix/store/[a-z0-9]+-(.+?)-([0-9].*?)$")
+        Regex::new(r"(.+?)-([0-9].*?)$")
             .expect("Failed to compile regex pattern for nix store paths")
     })
 }
@@ -263,8 +263,14 @@ fn store_path_regex() -> &'static Regex {
 fn get_version<'a>(pack: impl Into<&'a str>) -> Result<(&'a str, &'a str)> {
     let path = pack.into();
 
+    // We can strip the path since it _always_ starts with
+    // /nix/store/....-
+    // This part is exactly 44 chars long, so we just remove it.
+    let stripped_path = &path[44..];
+    debug!("Stripped path: {stripped_path}");
+
     // Match the regex against the input
-    if let Some(cap) = store_path_regex().captures(path) {
+    if let Some(cap) = store_path_regex().captures(stripped_path) {
         // Handle potential missing captures safely
         let name = cap.get(1).map_or("", |m| m.as_str());
         let version = cap.get(2).map_or("", |m| m.as_str());

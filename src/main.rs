@@ -97,6 +97,7 @@ fn main() {
     println!("<<< {}", args.path.to_string_lossy());
     println!(">>> {}", args.path2.to_string_lossy());
 
+
     // handles to the threads collecting closure size information
     // We do this as early as possible because nix is slow.
     let closure_size_handles = if args.closure_size {
@@ -115,7 +116,7 @@ fn main() {
     let package_list_pre = match store::get_packages(&args.path) {
         Ok(packages) => {
             debug!("Found {} packages in first closure", packages.len());
-            packages
+            packages.into_iter().map(|(_, path)| path).collect()
         }
         Err(e) => {
             error!(
@@ -135,7 +136,7 @@ fn main() {
     let package_list_post = match store::get_packages(&args.path2) {
         Ok(packages) => {
             debug!("Found {} packages in second closure", packages.len());
-            packages
+            packages.into_iter().map(|(_, path)| path).collect()
         }
         Err(e) => {
             error!(
@@ -184,6 +185,7 @@ fn main() {
 
     // Difference gives us added and removed packages
     let added: HashSet<&str> = &post_keys - &pre_keys;
+
     let removed: HashSet<&str> = &pre_keys - &post_keys;
     // Get the intersection of the package names for version changes
     let changed: HashSet<&str> = &pre_keys & &post_keys;

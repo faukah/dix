@@ -54,13 +54,7 @@ pub fn print_added(set: &HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col
         let mut version_vec = ver.iter().copied().collect::<Vec<_>>();
         version_vec.sort_unstable();
         let version_str = version_vec.join(", ");
-        println!(
-            "[{}] {:col_width$} {} {}",
-            "A:".green().bold(),
-            p,
-            "@".yellow().bold(),
-            version_str
-        );
+        println!("[{}] {:col_width$} {}", "A:".green().bold(), p, version_str);
     }
 }
 
@@ -81,13 +75,7 @@ pub fn print_removed(set: &HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, co
         let mut version_vec = ver.iter().copied().collect::<Vec<_>>();
         version_vec.sort_unstable();
         let version_str = version_vec.join(", ");
-        println!(
-            "[{}] {:col_width$} {} {}",
-            "R:".red().bold(),
-            p,
-            "@".yellow(),
-            version_str
-        );
+        println!("[{}] {:col_width$} {}", "R:".red().bold(), p, version_str);
     }
 }
 
@@ -141,10 +129,9 @@ pub fn print_changes(
         }
 
         println!(
-            "[{}] {:col_width$} {} {} ~> {}",
+            "[{}] {:col_width$} {} ~> {}",
             "C:".bold().bright_yellow(),
             p,
-            "@".yellow(),
             diffed_pre,
             diffed_post
         );

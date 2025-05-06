@@ -103,8 +103,9 @@ pub fn get_dependency_graph(path: &std::path::Path) -> Result<HashMap<i64, Vec<i
 
     let mut stmt = conn.prepare(QUERY_DEPENDENCY_GRAPH)?;
     let mut adj = HashMap::<i64, Vec<i64>>::new();
-    let queried_sum = stmt.query_map([p], |row| Ok::<(i64, i64), _>((row.get(0)?, row.get(1)?)))?;
-    for row in queried_sum {
+    let queried_edges =
+        stmt.query_map([p], |row| Ok::<(i64, i64), _>((row.get(0)?, row.get(1)?)))?;
+    for row in queried_edges {
         let (from, to) = row?;
         adj.entry(from).or_default().push(to);
         adj.entry(to).or_default();

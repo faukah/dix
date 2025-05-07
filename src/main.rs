@@ -18,9 +18,9 @@ use error::AppError;
 type Result<T> = std::result::Result<T, AppError>;
 
 #[derive(Parser, Debug)]
-#[command(name = "nix-diff")]
+#[command(name = "dix")]
 #[command(version = "1.0")]
-#[command(about = "Diff two different system closures", long_about = None)]
+#[command(about = "Diff Nix stuff", long_about = None)]
 #[command(version, about, long_about = None)]
 struct Args {
     path: std::path::PathBuf,

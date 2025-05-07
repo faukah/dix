@@ -1,7 +1,9 @@
-# nix-diff
+# dix
 
-## diff nix system closures
+## diff Nix stuff
+
+Currently only system closures
 
 ## Usage
 
-`nix-diff /nix/var/profiles/system-<version>-link /run/current-system`
+`dix /nix/var/profiles/system-<version>-link /run/current-system`

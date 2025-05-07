@@ -32,14 +32,14 @@ impl PartialOrd for VersionComponent {
 //
 // a component is delimited by '-' or '.' and consists of just digits or letters
 struct VersionComponentIterator<'a> {
-    v: &'a str,
+    v: &'a [u8],
     pos: usize,
 }
 
 impl<'a> VersionComponentIterator<'a> {
     pub fn new<I: Into<&'a str>>(v: I) -> Self {
         Self {
-            v: v.into(),
+            v: v.into().as_bytes(),
             pos: 0,
         }
     }
@@ -49,29 +49,25 @@ impl Iterator for VersionComponentIterator<'_> {
     type Item = VersionComponent;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // check if there is something left
-        if self.pos >= self.v.len() {
-            return None;
-        }
-
         // skip all '-' and '.' in the beginning
-        let mut skipped_chars = 0;
-        let mut chars = self.v[self.pos..].chars().peekable();
-        while let Some('.' | '-') = chars.peek() {
-            skipped_chars += 1;
-            chars.next();
+        while let Some(b'.' | b'-') = self.v.get(self.pos) {
+            self.pos += 1;
         }
 
         // get the next character and decide if it is a digit or char
-        let c = chars.peek()?;
+        let c = self.v.get(self.pos)?;
         let is_digit = c.is_ascii_digit();
         // based on this collect characters after this into the component
-        let component: String = chars
-            .take_while(|&c| c.is_ascii_digit() == is_digit && c != '.' && c != '-')
-            .collect();
+        let component_len = self.v[self.pos..]
+            .iter()
+            .copied()
+            .take_while(|&c| c.is_ascii_digit() == is_digit && c != b'.' && c != b'-')
+            .count();
+        let component =
+            String::from_utf8_lossy(&self.v[self.pos..(self.pos + component_len)]).into_owned();
 
         // remember what chars we used
-        self.pos += component.len() + skipped_chars;
+        self.pos += component_len;
 
         if component.is_empty() {
             None

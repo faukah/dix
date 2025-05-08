@@ -1,7 +1,7 @@
+mod common;
+use common::QUERY_DERIV;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use dixlib::store;
-
-const QUERY_DERIV: &str = "/run/current-system/system";
 
 // basic benchmarks using the current system
 //

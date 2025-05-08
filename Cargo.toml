@@ -24,6 +24,16 @@ diff = "0.1.13"
 
 [dev-dependencies]
 criterion = "0.3"
+libc = "0.2"
+
 [[bench]]
 name = "store"
+harness=false
+
+[[bench]]
+name = "print"
+harness=false
+
+[[bench]]
+name = "util"
 harness=false

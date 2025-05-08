@@ -3,6 +3,15 @@ name = "dix"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "dix"
+path = "src/main.rs"
+
+[lib]
+name = "dixlib"
+path = "src/lib.rs"
+
+
 [dependencies]
 clap = { version = "4.5.37", features = ["derive"] }
 regex = "1.11.1"
@@ -12,3 +21,19 @@ log = "0.4.20"
 env_logger = "0.11.3"
 rusqlite = { version = "0.35.0", features = ["bundled"] }
 diff = "0.1.13"
+
+[dev-dependencies]
+criterion = "0.3"
+libc = "0.2"
+
+[[bench]]
+name = "store"
+harness=false
+
+[[bench]]
+name = "print"
+harness=false
+
+[[bench]]
+name = "util"
+harness=false

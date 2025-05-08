@@ -1,19 +1,14 @@
-mod print;
-mod util;
 use clap::Parser;
 use core::str;
+use dixlib::print;
+use dixlib::store;
+use dixlib::util::PackageDiff;
 use log::{debug, error};
 use std::{
     collections::{HashMap, HashSet},
     thread,
 };
 use yansi::Paint;
-mod error;
-mod store;
-use error::AppError;
-
-// Use type alias for Result with our custom error type
-type Result<T> = std::result::Result<T, AppError>;
 
 #[derive(Parser, Debug)]
 #[command(name = "dix")]
@@ -145,42 +140,15 @@ fn main() {
         }
     };
 
-    // Map from packages of the first closure to their version
-    let mut pre = HashMap::<&str, HashSet<&str>>::new();
-    let mut post = HashMap::<&str, HashSet<&str>>::new();
-
-    for p in &package_list_pre {
-        match util::get_version(&**p) {
-            Ok((name, version)) => {
-                pre.entry(name).or_default().insert(version);
-            }
-            Err(e) => {
-                debug!("Error parsing package version: {e}");
-            }
-        }
-    }
-
-    for p in &package_list_post {
-        match util::get_version(&**p) {
-            Ok((name, version)) => {
-                post.entry(name).or_default().insert(version);
-            }
-            Err(e) => {
-                debug!("Error parsing package version: {e}");
-            }
-        }
-    }
-
-    // Compare the package names of both versions
-    let pre_keys: HashSet<&str> = pre.keys().copied().collect();
-    let post_keys: HashSet<&str> = post.keys().copied().collect();
-
-    // Difference gives us added and removed packages
-    let added: HashSet<&str> = &post_keys - &pre_keys;
-
-    let removed: HashSet<&str> = &pre_keys - &post_keys;
-    // Get the intersection of the package names for version changes
-    let changed: HashSet<&str> = &pre_keys & &post_keys;
+    let PackageDiff {
+        pkg_to_versions_pre: pre,
+        pkg_to_versions_post: post,
+        pre_keys: _,
+        post_keys: _,
+        added,
+        removed,
+        changed,
+    } = PackageDiff::new(&package_list_pre, &package_list_post);
 
     debug!("Added packages: {}", added.len());
     debug!("Removed packages: {}", removed.len());

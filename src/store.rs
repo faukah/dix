@@ -64,7 +64,7 @@ pub fn get_packages(path: &std::path::Path) -> Result<Vec<(i64, String)>> {
     let p: String = path.canonicalize()?.to_string_lossy().into_owned();
     let conn = Connection::open(DATABASE_URL)?;
 
-    let mut stmt = conn.prepare(QUERY_PKGS)?;
+    let mut stmt = conn.prepare_cached(QUERY_PKGS)?;
     let queried_pkgs: std::result::Result<Vec<(i64, String)>, _> = stmt
         .query_map([p], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect();
@@ -82,7 +82,7 @@ pub fn get_closure_size(path: &std::path::Path) -> Result<i64> {
     let p: String = path.canonicalize()?.to_string_lossy().into_owned();
     let conn = Connection::open(DATABASE_URL)?;
 
-    let mut stmt = conn.prepare(QUERY_CLOSURE_SIZE)?;
+    let mut stmt = conn.prepare_cached(QUERY_CLOSURE_SIZE)?;
     let queried_sum = stmt.query_row([p], |row| row.get(0))?;
     Ok(queried_sum)
 }
@@ -101,7 +101,7 @@ pub fn get_dependency_graph(path: &std::path::Path) -> Result<HashMap<i64, Vec<i
     let p: String = path.canonicalize()?.to_string_lossy().into_owned();
     let conn = Connection::open(DATABASE_URL)?;
 
-    let mut stmt = conn.prepare(QUERY_DEPENDENCY_GRAPH)?;
+    let mut stmt = conn.prepare_cached(QUERY_DEPENDENCY_GRAPH)?;
     let mut adj = HashMap::<i64, Vec<i64>>::new();
     let queried_edges =
         stmt.query_map([p], |row| Ok::<(i64, i64), _>((row.get(0)?, row.get(1)?)))?;

@@ -1,6 +1,11 @@
 mod common;
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use dixlib::store;
+use criterion::{
+  Criterion,
+  black_box,
+  criterion_group,
+  criterion_main,
+};
+use dix::store;
 
 // basic benchmarks using the current system
 //
@@ -12,25 +17,27 @@ use dixlib::store;
 // db to benchmark instead to make the results comparable
 
 pub fn bench_get_packages(c: &mut Criterion) {
-    c.bench_function("get_packages", |b| {
-        b.iter(|| store::get_packages(black_box(common::get_deriv_query())));
-    });
+  c.bench_function("get_packages", |b| {
+    b.iter(|| store::query_depdendents(black_box(common::get_deriv_query())));
+  });
 }
 pub fn bench_get_closure_size(c: &mut Criterion) {
-    c.bench_function("get_closure_size", |b| {
-        b.iter(|| store::get_closure_size(black_box(common::get_deriv_query())));
-    });
+  c.bench_function("get_closure_size", |b| {
+    b.iter(|| store::gequery_closure_sizelack_box(common::get_deriv_query())));
+  });
 }
 pub fn bench_get_dependency_graph(c: &mut Criterion) {
-    c.bench_function("get_dependency_graph", |b| {
-        b.iter(|| store::get_dependency_graph(black_box(common::get_deriv_query())));
+  c.bench_function("get_dependency_graph", |b| {
+    b.iter(|| {
+      store::query_dependency_graph(black_box(common::get_deriv_query()))
     });
+  });
 }
 
 criterion_group!(
-    benches,
-    bench_get_packages,
-    bench_get_closure_size,
-    bench_get_dependency_graph
+  benches,
+  bench_get_packages,
+  bench_get_closure_size,
+  bench_get_dependency_graph
 );
 criterion_main!(benches);

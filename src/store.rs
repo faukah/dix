@@ -1,115 +1,167 @@
-use std::collections::HashMap;
+use std::{
+  path::{
+    Path,
+    PathBuf,
+  },
+  result,
+};
 
-use crate::error::AppError;
+use anyhow::{
+  Context as _,
+  Result,
+};
+use derive_more::Deref;
+use ref_cast::RefCast;
 use rusqlite::Connection;
+use rustc_hash::{
+  FxBuildHasher,
+  FxHashMap,
+};
 
-// Use type alias for Result with our custom error type
-type Result<T> = std::result::Result<T, AppError>;
+macro_rules! path_to_str {
+  ($path:ident) => {
+    let $path = $path.canonicalize().with_context(|| {
+      format!(
+        "failed to canonicalize path '{path}'",
+        path = $path.display(),
+      )
+    })?;
 
-const DATABASE_URL: &str = "/nix/var/nix/db/db.sqlite";
-
-const QUERY_PKGS: &str = "
-WITH RECURSIVE
-	graph(p) AS (
-		SELECT id 
-		FROM ValidPaths
-		WHERE path = ?
-	UNION
-		SELECT reference FROM Refs
-		JOIN graph ON referrer = p
-	)
-SELECT id, path from graph
-JOIN ValidPaths ON id = p;
-";
-
-const QUERY_CLOSURE_SIZE: &str = "
-WITH RECURSIVE
-	graph(p) AS (
-		SELECT id 
-		FROM ValidPaths
-		WHERE path = ?
-	UNION
-		SELECT reference FROM Refs
-		JOIN graph ON referrer = p
-	)
-SELECT SUM(narSize) as sum from graph
-JOIN ValidPaths ON p = id;
-";
-
-const QUERY_DEPENDENCY_GRAPH: &str = "
-WITH RECURSIVE
-	graph(p, c) AS (
-		SELECT id as par, reference as chd 
-		FROM ValidPaths
-		JOIN Refs ON referrer = id
-		WHERE path = ?
-	UNION
-		SELECT referrer as par, reference as chd FROM Refs
-		JOIN graph ON referrer = c
-	)
-SELECT p, c from graph;
-";
-
-/// executes a query on the nix db directly
-/// to gather all derivations that the derivation given by the path
-/// depends on
-///
-/// The ids of the derivations in the database are returned as well, since these
-/// can be used to later convert nodes (represented by the the ids) of the
-/// dependency graph to actual paths
-///
-/// in the future, we might wan't to switch to async
-pub fn get_packages(path: &std::path::Path) -> Result<Vec<(i64, String)>> {
-    // resolve symlinks and convert to a string
-    let p: String = path.canonicalize()?.to_string_lossy().into_owned();
-    let conn = Connection::open(DATABASE_URL)?;
-
-    let mut stmt = conn.prepare_cached(QUERY_PKGS)?;
-    let queried_pkgs: std::result::Result<Vec<(i64, String)>, _> = stmt
-        .query_map([p], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect();
-    Ok(queried_pkgs?)
+    let $path = $path.to_str().with_context(|| {
+      format!(
+        "failed to convert path '{path}' to valid unicode",
+        path = $path.display(),
+      )
+    })?;
+  };
 }
 
-/// executes a query on the nix db directly
-/// to get the total closure size of the derivation
-/// by summing up the nar size of all derivations
-/// depending on the derivation
-///
-/// in the future, we might wan't to switch to async
-pub fn get_closure_size(path: &std::path::Path) -> Result<i64> {
-    // resolve symlinks and convert to a string
-    let p: String = path.canonicalize()?.to_string_lossy().into_owned();
-    let conn = Connection::open(DATABASE_URL)?;
+#[derive(Deref, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DerivationId(i64);
 
-    let mut stmt = conn.prepare_cached(QUERY_CLOSURE_SIZE)?;
-    let queried_sum = stmt.query_row([p], |row| row.get(0))?;
-    Ok(queried_sum)
+#[expect(clippy::module_name_repetitions)]
+#[derive(RefCast, Deref, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct StorePath(Path);
+
+#[expect(clippy::module_name_repetitions)]
+#[derive(Deref, Debug, Clone, PartialEq, Eq)]
+pub struct StorePathBuf(PathBuf);
+
+/// Connects to the Nix database.
+pub fn connect() -> Result<Connection> {
+  const DATABASE_PATH: &str = "/nix/var/nix/db/db.sqlite";
+
+  Connection::open(DATABASE_PATH).with_context(|| {
+    format!("failed to connect to Nix database at {DATABASE_PATH}")
+  })
 }
 
-/// returns the complete dependency graph of
-/// of the derivation as an adjacency list. The nodes are
-/// represented by the DB ids
+/// Gathers all derivations that the given store path depends on.
+pub fn query_depdendents(
+  connection: &mut Connection,
+  path: &StorePath,
+) -> Result<Vec<(DerivationId, StorePathBuf)>> {
+  const QUERY: &str = "
+    WITH RECURSIVE
+      graph(p) AS (
+        SELECT id 
+        FROM ValidPaths
+        WHERE path = ?
+      UNION
+        SELECT reference FROM Refs
+        JOIN graph ON referrer = p
+      )
+    SELECT id, path from graph
+    JOIN ValidPaths ON id = p;
+  ";
+
+  path_to_str!(path);
+
+  let packages: result::Result<Vec<(DerivationId, StorePathBuf)>, _> =
+    connection
+      .prepare_cached(QUERY)?
+      .query_map([path], |row| {
+        Ok((
+          DerivationId(row.get(0)?),
+          StorePathBuf(row.get::<_, String>(1)?.into()),
+        ))
+      })?
+      .collect();
+
+  Ok(packages?)
+}
+
+/// Gets the total closure size of the given store path by summing up the nar
+/// size of all depdendent derivations.
+pub fn query_closure_size(
+  connection: &mut Connection,
+  path: &StorePath,
+) -> Result<usize> {
+  const QUERY: &str = "
+    WITH RECURSIVE
+      graph(p) AS (
+        SELECT id 
+        FROM ValidPaths
+        WHERE path = ?
+      UNION
+        SELECT reference FROM Refs
+        JOIN graph ON referrer = p
+      )
+    SELECT SUM(narSize) as sum from graph
+    JOIN ValidPaths ON p = id;
+  ";
+
+  path_to_str!(path);
+
+  let closure_size = connection
+    .prepare_cached(QUERY)?
+    .query_row([path], |row| row.get(0))?;
+
+  Ok(closure_size)
+}
+
+/// Gathers the complete dependency graph of of the store path as an adjacency
+/// list.
 ///
 /// We might want to collect the paths in the graph directly as
 /// well in the future, depending on how much we use them
-/// in the operations on the graph
-///
-/// The mapping from id to graph can be obtained by using [``get_packages``]
-pub fn get_dependency_graph(path: &std::path::Path) -> Result<HashMap<i64, Vec<i64>>> {
-    // resolve symlinks and convert to a string
-    let p: String = path.canonicalize()?.to_string_lossy().into_owned();
-    let conn = Connection::open(DATABASE_URL)?;
+/// in the operations on the graph.
+pub fn query_dependency_graph(
+  connection: &mut Connection,
+  path: &StorePath,
+) -> Result<FxHashMap<DerivationId, Vec<DerivationId>>> {
+  const QUERY: &str = "
+    WITH RECURSIVE
+      graph(p, c) AS (
+        SELECT id as par, reference as chd 
+        FROM ValidPaths
+        JOIN Refs ON referrer = id
+        WHERE path = ?
+      UNION
+        SELECT referrer as par, reference as chd FROM Refs
+        JOIN graph ON referrer = c
+      )
+    SELECT p, c from graph;
+  ";
 
-    let mut stmt = conn.prepare_cached(QUERY_DEPENDENCY_GRAPH)?;
-    let mut adj = HashMap::<i64, Vec<i64>>::new();
-    let queried_edges =
-        stmt.query_map([p], |row| Ok::<(i64, i64), _>((row.get(0)?, row.get(1)?)))?;
-    for row in queried_edges {
-        let (from, to) = row?;
-        adj.entry(from).or_default().push(to);
-        adj.entry(to).or_default();
-    }
+  path_to_str!(path);
 
-    Ok(adj)
+  let mut adj =
+    FxHashMap::<DerivationId, Vec<DerivationId>>::with_hasher(FxBuildHasher);
+
+  let mut statement = connection.prepare_cached(QUERY)?;
+
+  let edges = statement.query_map([path], |row| {
+    Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?)))
+  })?;
+
+  for row in edges {
+    let (from, to) = row?;
+
+    adj.entry(from).or_default().push(to);
+    adj.entry(to).or_default();
+  }
+
+  Ok(adj)
 }

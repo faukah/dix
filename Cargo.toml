@@ -1,39 +1,119 @@
 [package]
-name = "dix"
+name    = "dix"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "dix"
-path = "src/main.rs"
-
-[lib]
-name = "dixlib"
-path = "src/lib.rs"
-
-
 [dependencies]
-clap = { version = "4.5.37", features = ["derive"] }
-regex = "1.11.1"
-yansi = "1.0.1"
-thiserror = "2.0.12"
-log = "0.4.20"
+anyhow     = "1.0.98"
+clap       = { version = "4.5.37", features = [ "derive" ] }
+derive_more = { version = "2.0.1", features = ["full"] }
+diff       = "0.1.13"
 env_logger = "0.11.3"
-rusqlite = { version = "0.35.0", features = ["bundled"] }
-diff = "0.1.13"
+log        = "0.4.20"
+ref-cast = "1.0.24"
+regex      = "1.11.1"
+rusqlite   = { version = "0.35.0", features = [ "bundled" ] }
+rustc-hash = "2.1.1"
+thiserror  = "2.0.12"
+yansi      = "1.0.1"
 
 [dev-dependencies]
 criterion = "0.3"
-libc = "0.2"
+libc      = "0.2"
 
 [[bench]]
-name = "store"
-harness=false
+harness = false
+name    = "store"
 
 [[bench]]
-name = "print"
-harness=false
+harness = false
+name    = "print"
 
 [[bench]]
-name = "util"
-harness=false
+harness = false
+name    = "util"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+blanket_clippy_restriction_lints = "allow"
+restriction                      = { level = "warn", priority = -1 }
+
+alloc_instead_of_core             = "allow"
+allow_attributes_without_reason   = "allow"
+arbitrary_source_item_ordering    = "allow"
+arithmetic_side_effects           = "allow"
+as_conversions                    = "allow"
+as_pointer_underscore             = "allow"
+as_underscore                     = "allow"
+big_endian_bytes                  = "allow"
+clone_on_ref_ptr                  = "allow"
+dbg_macro                         = "allow"
+disallowed_script_idents          = "allow"
+else_if_without_else              = "allow"
+error_impl_error                  = "allow"
+exhaustive_enums                  = "allow"
+exhaustive_structs                = "allow"
+expect_used                       = "allow"
+field_scoped_visibility_modifiers = "allow"
+float_arithmetic                  = "allow"
+host_endian_bytes                 = "allow"
+impl_trait_in_params              = "allow"
+implicit_return                   = "allow"
+indexing_slicing                  = "allow"
+inline_asm_x86_intel_syntax       = "allow"
+integer_division                  = "allow"
+integer_division_remainder_used   = "allow"
+large_include_file                = "allow"
+let_underscore_must_use           = "allow"
+let_underscore_untyped            = "allow"
+little_endian_bytes               = "allow"
+map_err_ignore                    = "allow"
+match_same_arms                   = "allow"
+missing_assert_message            = "allow"
+missing_docs_in_private_items     = "allow"
+missing_errors_doc                = "allow"
+missing_inline_in_public_items    = "allow"
+missing_panics_doc                = "allow"
+missing_trait_methods             = "allow"
+mod_module_files                  = "allow"
+multiple_inherent_impl            = "allow"
+mutex_atomic                      = "allow"
+mutex_integer                     = "allow"
+new_without_default               = "allow"
+non_ascii_literal                 = "allow"
+panic                             = "allow"
+panic_in_result_fn                = "allow"
+partial_pub_fields                = "allow"
+print_stderr                      = "allow"
+print_stdout                      = "allow"
+pub_use                           = "allow"
+pub_with_shorthand                = "allow"
+pub_without_shorthand             = "allow"
+question_mark_used                = "allow"
+ref_patterns                      = "allow"
+renamed_function_params           = "allow"
+same_name_method                  = "allow"
+semicolon_outside_block           = "allow"
+separated_literal_suffix          = "allow"
+shadow_reuse                      = "allow"
+shadow_same                       = "allow"
+shadow_unrelated                  = "allow"
+single_call_fn                    = "allow"
+single_char_lifetime_names        = "allow"
+single_match_else                 = "allow"
+std_instead_of_alloc              = "allow"
+std_instead_of_core               = "allow"
+string_add                        = "allow"
+string_slice                      = "allow"
+todo                              = "allow"
+too_many_lines                    = "allow"
+try_err                           = "allow"
+unimplemented                     = "allow"
+unnecessary_safety_comment        = "allow"
+unnecessary_safety_doc            = "allow"
+unreachable                       = "allow"
+unwrap_in_result                  = "allow"
+unwrap_used                       = "allow"
+use_debug                         = "allow"
+wildcard_enum_match_arm           = "allow"

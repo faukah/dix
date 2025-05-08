@@ -92,61 +92,50 @@ pub fn compare_versions(this: &str, that: &str) -> cmp::Ordering {
   this.cmp(that)
 }
 
-/// Parses a nix store path to extract the packages name and version
+/// Parses a Nix store path to extract the packages name and possibly its
+/// version.
 ///
 /// This function first drops the inputs first 44 chars, since that is exactly
-/// the length of the /nix/store/... prefix. Then it matches that against our
-/// store path regex.
-///
-/// # Returns
-///
-/// * Result<(&'a str, &'a str)> - The Package's name and version, or an error
-///   if one or both cannot be retrieved.
-pub fn get_version<'a>(pack: impl Into<&'a str>) -> Result<(&'a str, &'a str)> {
-  let path = pack.into();
+/// the length of the `/nix/store/0004yybkm5hnwjyxv129js3mjp7kbrax-` prefix.
+/// Then it matches that against our store path regex.
+pub fn parse_name_and_version(
+  path: &StorePath,
+) -> Result<(&str, Option<&str>)> {
+  static STORE_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new("(.+?)(-([0-9].*?))?$")
+      .expect("failed to compile regex pattern for nix store paths")
+  });
 
-  // We can strip the path since it _always_ follows the format
-  // /nix/store/<...>-<program_name>-......
+  let path = path.to_str().with_context(|| {
+    format!(
+      "failed to convert path '{path}' to valid unicode",
+      path = path.display(),
+    )
+  })?;
+
+  // We can strip the path since it _always_ follows the format:
+  //
+  // /nix/store/0004yybkm5hnwjyxv129js3mjp7kbrax-...
+  // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   // This part is exactly 44 chars long, so we just remove it.
-  let stripped_path = &path[44..];
-  debug!("Stripped path: {stripped_path}");
+  assert_eq!(&path[..11], "/nix/store/");
+  assert_eq!(&path[43..44], "-");
+  let path = &path[44..];
 
-  // Match the regex against the input
-  if let Some(cap) = store_path_regex().captures(stripped_path) {
-    // Handle potential missing captures safely
-    let name = cap.get(1).map_or("", |m| m.as_str());
-    let mut version = cap.get(2).map_or("<none>", |m| m.as_str());
+  log::debug!("stripped path: {path}");
 
-    if version.starts_with('-') {
-      version = &version[1..];
-    }
+  let captures = STORE_PATH_REGEX.captures(path).ok_or_else(|| {
+    anyhow!("path '{path}' does not match expected Nix store format")
+  })?;
 
-    if name.is_empty() {
-      return Err(AppError::ParseError {
-        message: format!("Failed to extract name from path: {path}"),
-        context: "get_version".to_string(),
-        source:  None,
-      });
-    }
-
-    return Ok((name, version));
+  let name = captures.get(1).map_or("", |m| m.as_str());
+  if name.is_empty() {
+    bail!("failed to extract name from path '{path}'");
   }
 
-  Err(AppError::ParseError {
-    message: format!("Path does not match expected nix store format: {path}"),
-    context: "get_version".to_string(),
-    source:  None,
-  })
-}
+  let version = captures.get(2).map(|m| m.as_str().trim_start_matches('-'));
 
-// Returns a reference to the compiled regex pattern.
-// The regex is compiled only once.
-pub fn store_path_regex() -> &'static Regex {
-  static REGEX: OnceLock<Regex> = OnceLock::new();
-  REGEX.get_or_init(|| {
-    Regex::new(r"(.+?)(-([0-9].*?))?$")
-      .expect("Failed to compile regex pattern for nix store paths")
-  })
+  Ok((name, version))
 }
 
 // TODO: move this somewhere else, this does not really

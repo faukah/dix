@@ -1,7 +1,4 @@
-use std::{
-  fmt,
-  io,
-};
+use std::fmt;
 
 use rustc_hash::{
   FxBuildHasher,
@@ -13,6 +10,8 @@ use crate::{
   StorePath,
   Version,
 };
+
+const HEADER_STYLE: yansi::Style = yansi::Style::new().bold().underline();
 
 #[derive(Default)]
 struct Diff<T> {
@@ -42,10 +41,10 @@ impl fmt::Display for DiffStatus {
 }
 
 pub fn diff<'a>(
-  writer: &mut dyn io::Write,
+  writer: &mut dyn fmt::Write,
   paths_old: impl Iterator<Item = &'a StorePath>,
   paths_new: impl Iterator<Item = &'a StorePath>,
-) -> io::Result<()> {
+) -> fmt::Result {
   let mut paths =
     FxHashMap::<&str, Diff<Vec<Option<&Version>>>>::with_hasher(FxBuildHasher);
 
@@ -92,7 +91,16 @@ pub fn diff<'a>(
     a_status.cmp(&b_status).then_with(|| a_name.cmp(b_name))
   });
 
+  let mut last_status = None::<DiffStatus>;
+
   for (name, _versions, status) in diffs {
+    if last_status != Some(status) {
+      last_status = Some(status);
+      HEADER_STYLE.fmt_prefix(writer)?;
+      writeln!(writer, "{status:?} packages:")?;
+      HEADER_STYLE.fmt_suffix(writer)?;
+    }
+
     write!(writer, "{status} {name}")?;
     writeln!(writer)?;
   }

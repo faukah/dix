@@ -19,12 +19,12 @@ fn diff_versions(left: &str, right: &str) -> (String, String) {
                 post.push(l);
             }
             diff::Result::Left(l) => {
-                let string_to_push = format!("\x1b[31m{l}");
+                let string_to_push = format!("\x1b[1;91m{l}");
                 prev.push_str(&string_to_push);
             }
 
             diff::Result::Right(r) => {
-                let string_to_push = format!("\x1b[32m{r}");
+                let string_to_push = format!("\x1b[1;92m{r}");
                 post.push_str(&string_to_push);
             }
         }
@@ -102,8 +102,8 @@ pub fn print_changes(
     changes.sort_by(|(a, _, _), (b, _, _)| a.cmp(b));
 
     for (p, ver_pre, ver_post) in changes {
-        let mut version_vec_pre = ver_pre.iter().copied().collect::<Vec<_>>();
-        let mut version_vec_post = ver_post.iter().copied().collect::<Vec<_>>();
+        let mut version_vec_pre = ver_pre.difference(ver_post).copied().collect::<Vec<_>>();
+        let mut version_vec_post = ver_post.difference(ver_pre).copied().collect::<Vec<_>>();
 
         version_vec_pre.sort_unstable();
         version_vec_post.sort_unstable();
@@ -129,7 +129,7 @@ pub fn print_changes(
         }
 
         println!(
-            "[{}] {:col_width$} {} ~> {}",
+            "[{}] {:col_width$} {} \u{00B1} {}",
             "C:".bold().bright_yellow(),
             p,
             diffed_pre,

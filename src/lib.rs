@@ -1,8 +1,17 @@
-use std::path::{
-  Path,
-  PathBuf,
+use std::{
+  path::{
+    Path,
+    PathBuf,
+  },
+  sync,
 };
 
+use anyhow::{
+  Context as _,
+  Result,
+  anyhow,
+  bail,
+};
 use derive_more::Deref;
 use ref_cast::RefCast;
 
@@ -11,14 +20,64 @@ pub mod print;
 
 pub mod store;
 
-pub mod util;
+mod version;
+pub use version::Version;
 
 #[derive(Deref, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DerivationId(i64);
+
+#[derive(Deref, Debug, Clone, PartialEq, Eq)]
+pub struct StorePathBuf(PathBuf);
 
 #[derive(RefCast, Deref, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct StorePath(Path);
 
-#[derive(Deref, Debug, Clone, PartialEq, Eq)]
-pub struct StorePathBuf(PathBuf);
+impl StorePath {
+  /// Parses a Nix store path to extract the packages name and possibly its
+  /// version.
+  ///
+  /// This function first drops the inputs first 44 chars, since that is exactly
+  /// the length of the `/nix/store/0004yybkm5hnwjyxv129js3mjp7kbrax-` prefix.
+  /// Then it matches that against our store path regex.
+  pub fn parse_name_and_version(&self) -> Result<(&str, Option<&Version>)> {
+    static STORE_PATH_REGEX: sync::LazyLock<regex::Regex> =
+      sync::LazyLock::new(|| {
+        regex::Regex::new("(.+?)(-([0-9].*?))?$")
+          .expect("failed to compile regex pattern for nix store paths")
+      });
+
+    let path = self.to_str().with_context(|| {
+      format!(
+        "failed to convert path '{path}' to valid unicode",
+        path = self.display(),
+      )
+    })?;
+
+    // We can strip the path since it _always_ follows the format:
+    //
+    // /nix/store/0004yybkm5hnwjyxv129js3mjp7kbrax-...
+    // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    // This part is exactly 44 chars long, so we just remove it.
+    assert_eq!(&path[..11], "/nix/store/");
+    assert_eq!(&path[43..44], "-");
+    let path = &path[44..];
+
+    log::debug!("stripped path: {path}");
+
+    let captures = STORE_PATH_REGEX.captures(path).ok_or_else(|| {
+      anyhow!("path '{path}' does not match expected Nix store format")
+    })?;
+
+    let name = captures.get(1).map_or("", |capture| capture.as_str());
+    if name.is_empty() {
+      bail!("failed to extract name from path '{path}'");
+    }
+
+    let version: Option<&Version> = captures.get(2).map(|capture| {
+      Version::ref_cast(capture.as_str().trim_start_matches('-'))
+    });
+
+    Ok((name, version))
+  }
+}

@@ -13,7 +13,6 @@ use rustc_hash::{
 use crate::{
   DerivationId,
   StorePath,
-  StorePathBuf,
 };
 
 macro_rules! path_to_str {
@@ -53,7 +52,7 @@ impl Connection {
   pub fn query_depdendents(
     &mut self,
     path: &StorePath,
-  ) -> Result<Vec<(DerivationId, StorePathBuf)>> {
+  ) -> Result<Vec<(DerivationId, StorePath)>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
@@ -70,12 +69,12 @@ impl Connection {
 
     path_to_str!(path);
 
-    let packages: result::Result<Vec<(DerivationId, StorePathBuf)>, _> = self
+    let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
       .prepare_cached(QUERY)?
       .query_map([path], |row| {
         Ok((
           DerivationId(row.get(0)?),
-          StorePathBuf(row.get::<_, String>(1)?.into()),
+          StorePath(row.get::<_, String>(1)?.into()),
         ))
       })?
       .collect();

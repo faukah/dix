@@ -3,6 +3,15 @@ name = "dix"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "dix"
+path = "src/main.rs"
+
+[lib]
+name = "dixlib"
+path = "src/lib.rs"
+
+
 [dependencies]
 clap = { version = "4.5.37", features = ["derive"] }
 regex = "1.11.1"

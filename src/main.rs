@@ -1,7 +1,8 @@
-mod print;
-mod util;
 use clap::Parser;
 use core::str;
+use dixlib::error::AppError;
+use dixlib::print;
+use dixlib::store;
 use log::{debug, error};
 use regex::Regex;
 use std::{
@@ -11,9 +12,6 @@ use std::{
     thread,
 };
 use yansi::Paint;
-mod error;
-mod store;
-use error::AppError;
 
 // Use type alias for Result with our custom error type
 type Result<T> = std::result::Result<T, AppError>;

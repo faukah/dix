@@ -1,7 +1,9 @@
 use core::str;
+use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
-    str::FromStr,
+    string::ToString,
+    sync::OnceLock,
 };
 use yansi::Paint;
 
@@ -15,7 +17,20 @@ fn diff_versions(left: &str, right: &str) -> (String, String) {
     let mut prev = "\x1b[33m".to_string();
     let mut post = "\x1b[33m".to_string();
 
-    for diff in diff::chars(left, right) {
+    // We only have to filter the left once, since we stop if the left one is empty.
+    // We do this to display things like -man, -dev properly.
+    let matches = name_regex().captures(left);
+    let mut suffix = String::new();
+
+    if let Some(m) = matches {
+        let tmp = m.get(0).map_or("", |m| m.as_str());
+        suffix.push_str(tmp);
+    }
+    // string without the suffix
+    let filtered_left = &left[..left.len() - suffix.len()];
+    let filtered_right = &right[..right.len() - suffix.len()];
+
+    for diff in diff::chars(filtered_left, filtered_right) {
         match diff {
             diff::Result::Both(l, _) => {
                 let string_to_push = format!("{l}");
@@ -33,6 +48,10 @@ fn diff_versions(left: &str, right: &str) -> (String, String) {
             }
         }
     }
+
+    // push removed suffix
+    prev.push_str(&format!("\x1b[33m{}", &suffix));
+    post.push_str(&format!("\x1b[33m{}", &suffix));
 
     //reset
     prev.push_str("\x1b[0m");
@@ -122,7 +141,7 @@ pub fn print_changes(
         version_vec_pre.sort_unstable();
         version_vec_post.sort_unstable();
 
-        let diffed_pre: String;
+        let mut diffed_pre: String;
         let diffed_post: String;
 
         if version_vec_pre.len() == version_vec_post.len() {
@@ -142,12 +161,30 @@ pub fn print_changes(
             (diffed_pre, diffed_post) = diff_versions(&version_str_pre, &version_str_post);
         }
 
+        // push a space to the diffed_pre, if it is non-empty, we do this here and not in the println
+        // in order to properly align the ±.
+        if !version_vec_pre.is_empty() {
+            let mut tmp = " ".to_string();
+            tmp.push_str(&diffed_pre);
+            diffed_pre = tmp;
+        }
+
         println!(
-            "[{}] {:col_width$} {} \u{00B1} {}",
+            "[{}] {:col_width$}{} \x1b[0m\u{00B1}\x1b[0m {}",
             "C:".bold().bright_yellow(),
             p,
             diffed_pre,
             diffed_post
         );
     }
+}
+
+// Returns a reference to the compiled regex pattern.
+// The regex is compiled only once.
+fn name_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"(-man|-lib|-doc|-dev|-out|-terminfo)")
+            .expect("Failed to compile regex pattern for name")
+    })
 }

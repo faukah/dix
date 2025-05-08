@@ -1,5 +1,8 @@
 use core::str;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 use yansi::Paint;
 
 /// diffs two strings character by character, and returns a tuple of strings
@@ -9,14 +12,15 @@ use yansi::Paint;
 ///
 /// * (String, String) - The differing chars being red in the left, and green in the right one.
 fn diff_versions(left: &str, right: &str) -> (String, String) {
-    let mut prev = String::new();
-    let mut post = String::new();
+    let mut prev = "\x1b[33m".to_string();
+    let mut post = "\x1b[33m".to_string();
 
     for diff in diff::chars(left, right) {
         match diff {
             diff::Result::Both(l, _) => {
-                prev.push(l);
-                post.push(l);
+                let string_to_push = format!("{l}");
+                prev.push_str(&string_to_push);
+                post.push_str(&string_to_push);
             }
             diff::Result::Left(l) => {
                 let string_to_push = format!("\x1b[1;91m{l}");
@@ -54,7 +58,12 @@ pub fn print_added(set: &HashSet<&str>, post: &HashMap<&str, HashSet<&str>>, col
         let mut version_vec = ver.iter().copied().collect::<Vec<_>>();
         version_vec.sort_unstable();
         let version_str = version_vec.join(", ");
-        println!("[{}] {:col_width$} {}", "A:".green().bold(), p, version_str);
+        println!(
+            "[{}] {:col_width$} \x1b[33m{}\x1b[0m",
+            "A:".green().bold(),
+            p,
+            version_str
+        );
     }
 }
 
@@ -75,7 +84,12 @@ pub fn print_removed(set: &HashSet<&str>, pre: &HashMap<&str, HashSet<&str>>, co
         let mut version_vec = ver.iter().copied().collect::<Vec<_>>();
         version_vec.sort_unstable();
         let version_str = version_vec.join(", ");
-        println!("[{}] {:col_width$} {}", "R:".red().bold(), p, version_str);
+        println!(
+            "[{}] {:col_width$} \x1b[33m{}\x1b[0m",
+            "R:".red().bold(),
+            p,
+            version_str
+        );
     }
 }
 

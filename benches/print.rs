@@ -2,7 +2,7 @@ mod common;
 
 use std::{fs::File, os::fd::AsRawFd};
 
-use common::get_pkg_diff;
+use common::{get_pkg_diff, print_used_nixos_systems};
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use dixlib::print;
 
@@ -31,6 +31,7 @@ fn suppress_output<F: FnOnce()>(f: F) {
 }
 
 pub fn bench_print_added(c: &mut Criterion) {
+    print_used_nixos_systems();
     let diff = get_pkg_diff();
     c.bench_function("print_added", |b| {
         b.iter(|| {
@@ -45,6 +46,7 @@ pub fn bench_print_added(c: &mut Criterion) {
     });
 }
 pub fn bench_print_removed(c: &mut Criterion) {
+    print_used_nixos_systems();
     let diff = get_pkg_diff();
     c.bench_function("print_removed", |b| {
         b.iter(|| {
@@ -59,6 +61,7 @@ pub fn bench_print_removed(c: &mut Criterion) {
     });
 }
 pub fn bench_print_changed(c: &mut Criterion) {
+    print_used_nixos_systems();
     let diff = get_pkg_diff();
     c.bench_function("print_changed", |b| {
         b.iter(|| {

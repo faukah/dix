@@ -1,5 +1,4 @@
 mod common;
-use common::QUERY_DERIV;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use dixlib::store;
 
@@ -14,17 +13,17 @@ use dixlib::store;
 
 pub fn bench_get_packages(c: &mut Criterion) {
     c.bench_function("get_packages", |b| {
-        b.iter(|| store::get_packages(black_box(std::path::Path::new(QUERY_DERIV))));
+        b.iter(|| store::get_packages(black_box(common::get_deriv_query())));
     });
 }
 pub fn bench_get_closure_size(c: &mut Criterion) {
     c.bench_function("get_closure_size", |b| {
-        b.iter(|| store::get_closure_size(black_box(std::path::Path::new(QUERY_DERIV))));
+        b.iter(|| store::get_closure_size(black_box(common::get_deriv_query())));
     });
 }
 pub fn bench_get_dependency_graph(c: &mut Criterion) {
     c.bench_function("get_dependency_graph", |b| {
-        b.iter(|| store::get_dependency_graph(black_box(std::path::Path::new(QUERY_DERIV))));
+        b.iter(|| store::get_dependency_graph(black_box(common::get_deriv_query())));
     });
 }
 

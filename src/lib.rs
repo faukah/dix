@@ -1,37 +1,46 @@
 use std::{
-  path::{
-    Path,
-    PathBuf,
-  },
+  path::PathBuf,
   sync,
 };
 
 use anyhow::{
   Context as _,
+  Error,
   Result,
   anyhow,
   bail,
 };
 use derive_more::Deref;
-use ref_cast::RefCast;
 
-pub mod error;
-pub mod print;
+// pub mod diff;
+// pub mod print;
 
 pub mod store;
 
 mod version;
+use ref_cast::RefCast as _;
 pub use version::Version;
 
 #[derive(Deref, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DerivationId(i64);
 
 #[derive(Deref, Debug, Clone, PartialEq, Eq)]
-pub struct StorePathBuf(PathBuf);
+pub struct StorePath(PathBuf);
 
-#[derive(RefCast, Deref, Debug, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct StorePath(Path);
+impl TryFrom<PathBuf> for StorePath {
+  type Error = Error;
+
+  fn try_from(path: PathBuf) -> Result<Self> {
+    if !path.starts_with("/nix/store") {
+      bail!(
+        "path {path} must start with /nix/store",
+        path = path.display(),
+      );
+    }
+
+    Ok(StorePath(path))
+  }
+}
 
 impl StorePath {
   /// Parses a Nix store path to extract the packages name and possibly its

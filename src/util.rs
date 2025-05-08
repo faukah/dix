@@ -19,13 +19,19 @@ use std::string::ToString;
 
 #[derive(Eq, PartialEq, Debug)]
 #[derive(Debug, Clone, Eq, PartialEq)]
-enum VersionComponent {
+enum VersionComponent<'a> {
   Number(u64),
-  Text(String),
+  Text(&'a str),
 }
 
-impl std::cmp::Ord for VersionComponent {
-  fn cmp(&self, other: &Self) -> Ordering {
+impl PartialOrd for VersionComponent<'_> {
+  fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+    Some(self.cmp(other))
+  }
+}
+
+impl cmp::Ord for VersionComponent<'_> {
+  fn cmp(&self, other: &Self) -> cmp::Ordering {
     use VersionComponent::{
       Number,
       Text,
@@ -34,7 +40,7 @@ impl std::cmp::Ord for VersionComponent {
     match (self, other) {
       (Number(x), Number(y)) => x.cmp(y),
       (Text(x), Text(y)) => {
-        match (x.as_str(), y.as_str()) {
+        match (*x, *y) {
           ("pre", _) => cmp::Ordering::Less,
           (_, "pre") => cmp::Ordering::Greater,
           _ => x.cmp(y),
@@ -50,8 +56,8 @@ impl std::cmp::Ord for VersionComponent {
 #[derive(Deref, DerefMut, From)]
 struct VersionComponentIter<'a>(&'a str);
 
-impl Iterator for VersionComponentIter<'_> {
-  type Item = VersionComponent;
+impl<'a> Iterator for VersionComponentIter<'a> {
+  type Item = VersionComponent<'a>;
 
   fn next(&mut self) -> Option<Self::Item> {
     // Skip all '-' and '.'.
@@ -71,7 +77,7 @@ impl Iterator for VersionComponentIter<'_> {
       .map(char::len_utf8)
       .sum();
 
-    let component = self[..component_len].to_owned();
+    let component = &self[..component_len];
     **self = &self[component_len..];
 
     assert!(!component.is_empty());

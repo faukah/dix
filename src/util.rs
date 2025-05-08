@@ -4,13 +4,14 @@ use std::{
     sync::OnceLock,
 };
 
+use crate::error::AppError;
 use log::debug;
 use regex::Regex;
 
-use crate::error::AppError;
-
 // Use type alias for Result with our custom error type
 type Result<T> = std::result::Result<T, AppError>;
+
+use std::string::ToString;
 
 #[derive(Eq, PartialEq, Debug)]
 enum VersionComponent {

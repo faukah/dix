@@ -1,4 +1,17 @@
+use crate::error::AppError;
+use log::{debug, error};
+use regex::Regex;
 use std::cmp::Ordering;
+
+use std::{
+    collections::{HashMap, HashSet},
+    string::ToString,
+    sync::OnceLock,
+    thread,
+};
+
+// Use type alias for Result with our custom error type
+type Result<T> = std::result::Result<T, AppError>;
 
 #[derive(Eq, PartialEq, Debug)]
 enum VersionComponent {
@@ -113,4 +126,58 @@ mod test {
             ]
         );
     }
+}
+/// Parses a nix store path to extract the packages name and version
+///
+/// This function first drops the inputs first 44 chars, since that is exactly the length of the /nix/store/... prefix. Then it matches that against our store path regex.
+///
+/// # Returns
+///
+/// * Result<(&'a str, &'a str)> - The Package's name and version, or an error if
+///   one or both cannot be retrieved.
+pub fn get_version<'a>(pack: impl Into<&'a str>) -> Result<(&'a str, &'a str)> {
+    let path = pack.into();
+
+    // We can strip the path since it _always_ follows the format
+    // /nix/store/<...>-<program_name>-......
+    // This part is exactly 44 chars long, so we just remove it.
+    let stripped_path = &path[44..];
+    debug!("Stripped path: {stripped_path}");
+
+    // Match the regex against the input
+    if let Some(cap) = store_path_regex().captures(stripped_path) {
+        // Handle potential missing captures safely
+        let name = cap.get(1).map_or("", |m| m.as_str());
+        let mut version = cap.get(2).map_or("<none>", |m| m.as_str());
+
+        if version.starts_with('-') {
+            version = &version[1..];
+        }
+
+        if name.is_empty() {
+            return Err(AppError::ParseError {
+                message: format!("Failed to extract name from path: {path}"),
+                context: "get_version".to_string(),
+                source: None,
+            });
+        }
+
+        return Ok((name, version));
+    }
+
+    Err(AppError::ParseError {
+        message: format!("Path does not match expected nix store format: {path}"),
+        context: "get_version".to_string(),
+        source: None,
+    })
+}
+
+// Returns a reference to the compiled regex pattern.
+// The regex is compiled only once.
+fn store_path_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"(.+?)(-([0-9].*?))?$")
+            .expect("Failed to compile regex pattern for nix store paths")
+    })
 }

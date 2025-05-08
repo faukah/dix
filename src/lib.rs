@@ -12,8 +12,8 @@ use anyhow::{
 };
 use derive_more::Deref;
 
-// pub mod diff;
-// pub mod print;
+mod diff;
+pub use diff::diff;
 
 pub mod store;
 
@@ -24,7 +24,7 @@ pub use version::Version;
 #[derive(Deref, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DerivationId(i64);
 
-#[derive(Deref, Debug, Clone, PartialEq, Eq)]
+#[derive(Deref, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StorePath(PathBuf);
 
 impl TryFrom<PathBuf> for StorePath {

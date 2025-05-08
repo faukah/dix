@@ -200,7 +200,7 @@ pub fn print_changes(
 fn name_regex() -> &'static Regex {
   static REGEX: OnceLock<Regex> = OnceLock::new();
   REGEX.get_or_init(|| {
-    Regex::new(r"(-man|-lib|-doc|-dev|-out|-terminfo)")
+    Regex::new("(-man|-lib|-doc|-dev|-out|-terminfo)")
       .expect("Failed to compile regex pattern for name")
   })
 }

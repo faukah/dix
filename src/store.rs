@@ -1,4 +1,7 @@
-use std::result;
+use std::{
+  path::Path,
+  result,
+};
 
 use anyhow::{
   Context as _,
@@ -48,10 +51,36 @@ pub fn connect() -> Result<Connection> {
 }
 
 impl Connection {
-  /// Gathers all derivations that the given store path depends on.
+  /// Gets the total closure size of the given store path by summing up the nar
+  /// size of all depdendent derivations.
+  pub fn query_closure_size(&mut self, path: &Path) -> Result<usize> {
+    const QUERY: &str = "
+      WITH RECURSIVE
+        graph(p) AS (
+          SELECT id 
+          FROM ValidPaths
+          WHERE path = ?
+        UNION
+          SELECT reference FROM Refs
+          JOIN graph ON referrer = p
+        )
+      SELECT SUM(narSize) as sum from graph
+      JOIN ValidPaths ON p = id;
+    ";
+
+    path_to_str!(path);
+
+    let closure_size = self
+      .prepare_cached(QUERY)?
+      .query_row([path], |row| row.get(0))?;
+
+    Ok(closure_size)
+  }
+
+  /// Gathers all derivations that the given profile path depends on.
   pub fn query_depdendents(
     &mut self,
-    path: &StorePath,
+    path: &Path,
   ) -> Result<Vec<(DerivationId, StorePath)>> {
     const QUERY: &str = "
       WITH RECURSIVE
@@ -80,32 +109,6 @@ impl Connection {
       .collect();
 
     Ok(packages?)
-  }
-
-  /// Gets the total closure size of the given store path by summing up the nar
-  /// size of all depdendent derivations.
-  pub fn query_closure_size(&mut self, path: &StorePath) -> Result<usize> {
-    const QUERY: &str = "
-      WITH RECURSIVE
-        graph(p) AS (
-          SELECT id 
-          FROM ValidPaths
-          WHERE path = ?
-        UNION
-          SELECT reference FROM Refs
-          JOIN graph ON referrer = p
-        )
-      SELECT SUM(narSize) as sum from graph
-      JOIN ValidPaths ON p = id;
-    ";
-
-    path_to_str!(path);
-
-    let closure_size = self
-      .prepare_cached(QUERY)?
-      .query_row([path], |row| row.get(0))?;
-
-    Ok(closure_size)
   }
 
   /// Gathers the complete dependency graph of of the store path as an adjacency

@@ -1,5 +1,8 @@
 use std::{
-  fmt::Write as _,
+  fmt::{
+    self,
+    Write as _,
+  },
   io::{
     self,
     Write as _,
@@ -20,6 +23,14 @@ use dix::{
   store,
 };
 use yansi::Paint as _;
+
+struct WriteFmt<W: io::Write>(W);
+
+impl<W: io::Write> fmt::Write for WriteFmt<W> {
+  fn write_str(&mut self, string: &str) -> fmt::Result {
+    self.0.write_all(string.as_bytes()).map_err(|_| fmt::Error)
+  }
+}
 
 #[derive(clap::Parser, Debug)]
 #[command(version, about)]
@@ -92,7 +103,7 @@ fn real_main() -> Result<()> {
 
   drop(connection);
 
-  let mut out = io::stdout();
+  let mut out = WriteFmt(io::stdout());
 
   #[expect(clippy::pattern_type_mismatch)]
   diff(

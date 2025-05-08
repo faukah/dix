@@ -93,9 +93,6 @@ fn main() {
         .format_timestamp(Some(env_logger::fmt::TimestampPrecision::Seconds))
         .init();
 
-    println!("<<< {}", args.path.to_string_lossy());
-    println!(">>> {}", args.path2.to_string_lossy());
-
     // handles to the threads collecting closure size information
     // We do this as early as possible because nix is slow.
     let closure_size_handles = if args.closure_size {
@@ -220,6 +217,8 @@ fn main() {
         .max()
         .unwrap_or_default();
 
+    println!("<<< {}", args.path.to_string_lossy());
+    println!(">>> {}", args.path2.to_string_lossy());
     print::print_added(&added, &post, col_width);
     print::print_removed(&removed, &pre, col_width);
     print::print_changes(&changed, &pre, &post, col_width);

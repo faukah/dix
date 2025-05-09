@@ -150,7 +150,7 @@ fn real_main() -> Result<()> {
 
   writeln!(
     out,
-    "{header}: {size_old} → {size_new}",
+    "{header}: {size_old} -> {size_new}",
     header = "SIZE".bold(),
     size_old = size_old.red(),
     size_new = size_new.green(),

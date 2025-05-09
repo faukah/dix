@@ -1,13 +1,19 @@
-use std::cmp;
+use std::{
+  cmp,
+  fmt::Write as _,
+  sync,
+};
 
 use derive_more::{
   Deref,
   DerefMut,
+  Display,
   From,
 };
 use ref_cast::RefCast;
+use yansi::Paint as _;
 
-#[derive(RefCast, Deref, Debug, PartialEq, Eq)]
+#[derive(RefCast, Deref, Display, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Version(str);
 
@@ -26,7 +32,47 @@ impl cmp::Ord for Version {
   }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+impl Version {
+  pub fn diff(old: &Version, new: &Version) -> (String, String) {
+    static NAME_SUFFIX_REGEX: sync::LazyLock<regex::Regex> =
+      sync::LazyLock::new(|| {
+        regex::Regex::new("(-man|-lib|-doc|-dev|-out|-terminfo)")
+          .expect("failed to compile regex for Nix store path versions")
+      });
+
+    let matches = NAME_SUFFIX_REGEX.captures(old);
+    let suffix = matches.map_or("", |matches| {
+      matches.get(0).map_or("", |capture| capture.as_str())
+    });
+
+    let old = old.strip_suffix(suffix).unwrap_or(old);
+    let new = new.strip_suffix(suffix).unwrap_or(new);
+
+    let mut oldacc = String::new();
+    let mut newacc = String::new();
+
+    for diff in diff::chars(old, new) {
+      match diff {
+        diff::Result::Left(oldc) => {
+          write!(oldacc, "{oldc}", oldc = oldc.red()).unwrap();
+        },
+
+        diff::Result::Both(oldc, newc) => {
+          write!(oldacc, "{oldc}", oldc = oldc.yellow()).unwrap();
+          write!(newacc, "{newc}", newc = newc.yellow()).unwrap();
+        },
+
+        diff::Result::Right(newc) => {
+          write!(newacc, "{newc}", newc = newc.green()).unwrap();
+        },
+      }
+    }
+
+    (oldacc, newacc)
+  }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum VersionComponent<'a> {
   Number(u64),
   Text(&'a str),
@@ -45,10 +91,10 @@ impl cmp::Ord for VersionComponent<'_> {
       Text,
     };
 
-    match (self, other) {
-      (Number(x), Number(y)) => x.cmp(y),
+    match (*self, *other) {
+      (Number(x), Number(y)) => x.cmp(&y),
       (Text(x), Text(y)) => {
-        match (*x, *y) {
+        match (x, y) {
           ("pre", _) => cmp::Ordering::Less,
           (_, "pre") => cmp::Ordering::Greater,
           _ => x.cmp(y),
@@ -79,8 +125,8 @@ impl<'a> Iterator for VersionComponentIter<'a> {
     // Based on this collect characters after this into the component.
     let component_len = self
       .chars()
-      .take_while(|&c| {
-        c.is_ascii_digit() == is_digit && !matches!(c, '.' | '-')
+      .take_while(|&char| {
+        char.is_ascii_digit() == is_digit && !matches!(char, '.' | '-')
       })
       .map(char::len_utf8)
       .sum();
@@ -116,10 +162,10 @@ mod tests {
       Number(132),
       Number(1),
       Number(2),
-      Text("test".into()),
+      Text("test"),
       Number(234),
       Number(1),
-      Text("man".into())
+      Text("man")
     ]);
   }
 }

@@ -11,7 +11,7 @@ package).
 
 ## Output
 
-![output of `dix /nix/var/nix/profiles/system-165-link/ /run/current-system`](images/dix.png)
+![output of `dix /nix/var/nix/profiles/system-165-link/ /run/current-system`](.github/dix.png)
 
 ## License
 

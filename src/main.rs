@@ -185,18 +185,21 @@ fn main() {
 
     let mut chars = message.char_indices();
 
-    let _ = if let Some((_, first)) = chars.next()
-      && let Some((second_start, second)) = chars.next()
-      && second.is_lowercase()
-    {
-      writeln!(
-        err,
-        "{first_lowercase}{rest}",
-        first_lowercase = first.to_lowercase(),
-        rest = &message[second_start..],
-      )
-    } else {
-      writeln!(err, "{message}")
+    let _ = match (chars.next(), chars.next()) {
+      (Some((_, first)), Some((second_start, second)))
+        if second.is_lowercase() =>
+      {
+        writeln!(
+          err,
+          "{first_lowercase}{rest}",
+          first_lowercase = first.to_lowercase(),
+          rest = &message[second_start..],
+        )
+      },
+
+      _ => {
+        writeln!(err, "{message}")
+      },
     };
   }
 

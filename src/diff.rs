@@ -1,12 +1,12 @@
-use std::{
-  fmt::{
-    self,
-    Write as _,
-  },
-  sync,
+use std::fmt::{
+  self,
+  Write as _,
 };
 
-use itertools::EitherOrBoth;
+use itertools::{
+  EitherOrBoth,
+  Itertools,
+};
 use ref_cast::RefCast as _;
 use rustc_hash::{
   FxBuildHasher,
@@ -20,9 +20,7 @@ use crate::{
   Version,
 };
 
-const HEADER_STYLE: yansi::Style = yansi::Style::new().bold().underline();
-
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Diff<T> {
   old: T,
   new: T,
@@ -110,9 +108,18 @@ pub fn diff<'a>(
   for (name, versions, status) in diffs {
     if last_status != Some(status) {
       last_status = Some(status);
-      HEADER_STYLE.fmt_prefix(writer)?;
-      writeln!(writer, "{status:?} packages:")?;
-      HEADER_STYLE.fmt_suffix(writer)?;
+
+      writeln!(
+        writer,
+        "{nl}{status}",
+        nl = if last_status.is_some() { "\n" } else { "" },
+        status = match status {
+          DiffStatus::Added => "ADDED",
+          DiffStatus::Removed => "REMOVED",
+          DiffStatus::Changed => "CHANGED",
+        }
+        .bold(),
+      )?;
     }
 
     write!(
@@ -122,56 +129,112 @@ pub fn diff<'a>(
     )?;
 
     let mut oldacc = String::new();
+    let mut oldwrote = false;
     let mut newacc = String::new();
+    let mut newwrote = false;
 
-    for diff in itertools::Itertools::zip_longest(
-      versions.old.iter(),
-      versions.new.iter(),
-    ) {
+    for diff in Itertools::zip_longest(versions.old.iter(), versions.new.iter())
+    {
       match diff {
+        EitherOrBoth::Right(old_version) => {
+          if oldwrote {
+            write!(oldacc, ", ")?;
+          } else {
+            write!(oldacc, " ")?;
+            oldwrote = true;
+          }
+
+          for old_comp in old_version.unwrap_or(Version::ref_cast("<none>")) {
+            match old_comp {
+              Ok(old_comp) => write!(oldacc, "{old}", old = old_comp.red())?,
+              Err(ignored) => write!(oldacc, "{ignored}")?,
+            }
+          }
+        },
+
         // I have no idea why itertools is returning `versions.new` in `Left`.
-        EitherOrBoth::Left(new) => {
-          let new = new.unwrap_or(Version::ref_cast("<none>"));
+        EitherOrBoth::Left(new_version) => {
+          if newwrote {
+            write!(newacc, ", ")?;
+          } else {
+            write!(newacc, " ")?;
+            newwrote = true;
+          }
 
-          write!(newacc, " {new}", new = new.green())?;
+          for new_comp in new_version.unwrap_or(Version::ref_cast("<none>")) {
+            match new_comp {
+              Ok(new_comp) => write!(newacc, "{new}", new = new_comp.green())?,
+              Err(ignored) => write!(newacc, "{ignored}")?,
+            }
+          }
         },
 
-        EitherOrBoth::Right(old) => {
-          let old = old.unwrap_or(Version::ref_cast("<none>"));
+        EitherOrBoth::Both(old_version, new_version) => {
+          if old_version == new_version {
+            continue;
+          }
 
-          write!(oldacc, " {old}", old = old.red())?;
-        },
+          let old_version = old_version.unwrap_or(Version::ref_cast("<none>"));
+          let new_version = new_version.unwrap_or(Version::ref_cast("<none>"));
 
-        EitherOrBoth::Both(old, new) => {
-          static NAME_SUFFIX_REGEX: sync::LazyLock<regex::Regex> =
-            sync::LazyLock::new(|| {
-              regex::Regex::new("(-man|-lib|-doc|-dev|-out|-terminfo)")
-                .expect("failed to compile regex for Nix store path versions")
-            });
+          if oldwrote {
+            write!(oldacc, ", ")?;
+          } else {
+            write!(oldacc, " ")?;
+            oldwrote = true;
+          }
+          if newwrote {
+            write!(newacc, ", ")?;
+          } else {
+            write!(newacc, " ")?;
+            newwrote = true;
+          }
 
-          let old = old.unwrap_or(Version::ref_cast("<none>"));
-          let new = new.unwrap_or(Version::ref_cast("<none>"));
-
-          let suffix = NAME_SUFFIX_REGEX.captures(old).map_or("", |matches| {
-            matches.get(0).map_or("", |capture| capture.as_str())
-          });
-
-          let old = old.strip_suffix(suffix).unwrap_or(old);
-          let new = new.strip_suffix(suffix).unwrap_or(new);
-
-          for diff in diff::chars(old, new) {
+          for diff in Itertools::zip_longest(
+            old_version.into_iter(),
+            new_version.into_iter(),
+          ) {
             match diff {
-              diff::Result::Left(oldc) => {
-                write!(oldacc, "{oldc}", oldc = oldc.red()).unwrap();
+              EitherOrBoth::Right(old_comp) => {
+                match old_comp {
+                  Ok(old_comp) => {
+                    write!(oldacc, "{old}", old = old_comp.red())?;
+                  },
+                  Err(ignored) => {
+                    write!(oldacc, "{ignored}")?;
+                  },
+                }
               },
 
-              diff::Result::Right(newc) => {
-                write!(newacc, "{newc}", newc = newc.green()).unwrap();
+              EitherOrBoth::Left(new_comp) => {
+                match new_comp {
+                  Ok(new_comp) => {
+                    write!(newacc, "{new}", new = new_comp.green())?;
+                  },
+                  Err(ignored) => {
+                    write!(newacc, "{ignored}")?;
+                  },
+                }
               },
 
-              diff::Result::Both(oldc, newc) => {
-                write!(oldacc, "{oldc}", oldc = oldc.yellow()).unwrap();
-                write!(newacc, "{newc}", newc = newc.yellow()).unwrap();
+              EitherOrBoth::Both(old_comp, new_comp) => {
+                if let Err(ignored) = old_comp {
+                  write!(oldacc, "{ignored}")?;
+                }
+
+                if let Err(ignored) = new_comp {
+                  write!(newacc, "{ignored}")?;
+                }
+
+                if let (Ok(old_comp), Ok(new_comp)) = (old_comp, new_comp) {
+                  if old_comp == new_comp {
+                    write!(oldacc, "{old}", old = old_comp.yellow())?;
+                    write!(newacc, "{new}", new = new_comp.yellow())?;
+                  } else {
+                    write!(oldacc, "{old}", old = old_comp.red())?;
+                    write!(newacc, "{new}", new = new_comp.green())?;
+                  }
+                }
               },
             }
           }

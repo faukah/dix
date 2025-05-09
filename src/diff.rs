@@ -38,9 +38,9 @@ struct Diff<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum DiffStatus {
+  Changed,
   Added,
   Removed,
-  Changed,
 }
 
 impl DiffStatus {

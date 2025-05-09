@@ -1,31 +1,58 @@
-use std::{
-  collections::HashMap,
-  path::Path,
-  result,
-};
+use std::{collections::HashMap, path::Path, result};
 
-use anyhow::{
-  Context as _,
-  Result,
-  anyhow,
-};
+use anyhow::{Context as _, Result, anyhow};
 use derive_more::Deref;
+use rusqlite::OpenFlags;
 
-use crate::{
-  DerivationId,
-  StorePath,
-};
+use crate::{DerivationId, StorePath};
 
 #[derive(Deref)]
 pub struct Connection(rusqlite::Connection);
 
-/// Connects to the Nix database.
+/// Connects to the Nix database
+///
+/// and sets some basic settings
 pub fn connect() -> Result<Connection> {
   const DATABASE_PATH: &str = "/nix/var/nix/db/db.sqlite";
 
-  let inner = rusqlite::Connection::open(DATABASE_PATH).with_context(|| {
+  let inner = rusqlite::Connection::open_with_flags(
+    DATABASE_PATH,
+    OpenFlags::SQLITE_OPEN_READ_ONLY // we only run queries, safeguard against corrupting the ddb
+      | OpenFlags::SQLITE_OPEN_NO_MUTEX // part of the default flags, rusqlite takes care of locking anyways
+      | OpenFlags::SQLITE_OPEN_URI,
+  )
+  .with_context(|| {
     format!("failed to connect to Nix database at {DATABASE_PATH}")
   })?;
+
+  // perform a batched query to set some settings using PRAGMA
+  // the main performance bottleneck when dix was run before
+  // was that the database file has to be brought from disk into
+  // memory
+  //
+  // We read a large part of the DB anyways in each query,
+  // so it makes sense to set aside a large region of memory-mapped
+  // I/O prevent incuring page faults which can be done using
+  // `mmap_size`
+  //
+  // This made a performance difference of about 500ms (but only
+  // when it was first run!)
+  //
+  // The file pages of the store can be evicted from main memory
+  // using `dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0`
+  // if you want to test this. (Source: [https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache])
+  //
+  // Documentation about the settings can be found [here](https://www.sqlite.org/pragma.html)
+  inner
+    .execute_batch(
+      "
+      PRAGMA mmap_size=268435456; -- 256MB, enough to fit the whole DB (at least on my system)
+      PRAGMA temp_store=2; -- store temporary tables always in memory
+      PRAGMA query_only;",
+    )
+    .with_context(|| {
+      format!("Error during setup commansd of Nix databse as {DATABASE_PATH}")
+    })?;
 
   Ok(Connection(inner))
 }

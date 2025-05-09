@@ -43,7 +43,7 @@ impl DiffStatus {
   }
 }
 
-pub fn diff<'a>(
+pub fn write_diffln<'a>(
   writer: &mut dyn fmt::Write,
   paths_old: impl Iterator<Item = &'a StorePath>,
   paths_new: impl Iterator<Item = &'a StorePath>,
@@ -107,8 +107,6 @@ pub fn diff<'a>(
 
   for (name, versions, status) in diffs {
     if last_status != Some(status) {
-      last_status = Some(status);
-
       writeln!(
         writer,
         "{nl}{status}",
@@ -120,6 +118,8 @@ pub fn diff<'a>(
         }
         .bold(),
       )?;
+
+      last_status = Some(status);
     }
 
     write!(

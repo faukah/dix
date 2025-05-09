@@ -16,12 +16,9 @@ use anyhow::{
   Context as _,
   Error,
   Result,
+  anyhow,
 };
 use clap::Parser as _;
-use dix::{
-  diff,
-  store,
-};
 use yansi::Paint as _;
 
 struct WriteFmt<W: io::Write>(W);
@@ -57,15 +54,15 @@ fn real_main() -> Result<()> {
 
   // Handle to the thread collecting closure size information.
   // We do this as early as possible because Nix is slow.
-  let _closure_size_handle = {
+  let closure_size_handle = {
     log::debug!("calculating closure sizes in background");
-
-    let mut connection = store::connect()?;
 
     let old_path = old_path.clone();
     let new_path = new_path.clone();
 
     thread::spawn(move || {
+      let mut connection = dix::store::connect()?;
+
       Ok::<_, Error>((
         connection.query_closure_size(&old_path)?,
         connection.query_closure_size(&new_path)?,
@@ -73,7 +70,7 @@ fn real_main() -> Result<()> {
     })
   };
 
-  let mut connection = store::connect()?;
+  let mut connection = dix::store::connect()?;
 
   let paths_old =
     connection.query_depdendents(&old_path).with_context(|| {
@@ -105,64 +102,56 @@ fn real_main() -> Result<()> {
 
   let mut out = WriteFmt(io::stdout());
 
+  writeln!(
+    out,
+    "{arrows} {old_path}",
+    arrows = "<<<".bold(),
+    old_path = old_path.display(),
+  )?;
+  writeln!(
+    out,
+    "{arrows} {new_path}",
+    arrows = ">>>".bold(),
+    new_path = new_path.display(),
+  )?;
+
+  writeln!(out)?;
+
   #[expect(clippy::pattern_type_mismatch)]
-  diff(
+  dix::write_diffln(
     &mut out,
     paths_old.iter().map(|(_, path)| path),
     paths_new.iter().map(|(_, path)| path),
   )?;
 
-  // println!("Difference between the two generations:");
-  // println!();
+  let (closure_size_old, closure_size_new) = closure_size_handle
+    .join()
+    .map_err(|_| anyhow!("failed to get closure size due to thread error"))??;
 
-  // let width_changes = changed.iter().filter(|&&p| {
-  //   match (pre.get(p), post.get(p)) {
-  //     (Some(version_pre), Some(version_post)) => version_pre != version_post,
-  //     _ => false,
-  //   }
-  // });
+  let size_old = size::Size::from_bytes(closure_size_old);
+  let size_new = size::Size::from_bytes(closure_size_new);
+  let size_diff = size_new - size_old;
 
-  // let col_width = added
-  //   .iter()
-  //   .chain(removed.iter())
-  //   .chain(width_changes)
-  //   .map(|p| p.len())
-  //   .max()
-  //   .unwrap_or_default();
+  writeln!(out)?;
 
-  // println!("<<< {}", cli.path.to_string_lossy());
-  // println!(">>> {}", cli.path2.to_string_lossy());
-  // print::print_added(&added, &post, col_width);
-  // print::print_removed(&removed, &pre, col_width);
-  // print::print_changes(&changed, &pre, &post, col_width);
+  writeln!(
+    out,
+    "{header}: {size_old} → {size_new}",
+    header = "SIZE".bold(),
+    size_old = size_old.red(),
+    size_new = size_new.green(),
+  )?;
 
-  // if let Some((pre_handle, post_handle)) = closure_size_handles {
-  //   match (pre_handle.join(), post_handle.join()) {
-  //     (Ok(Ok(pre_size)), Ok(Ok(post_size))) => {
-  //       let pre_size = pre_size / 1024 / 1024;
-  //       let post_size = post_size / 1024 / 1024;
-  //       log::debug!("Pre closure size: {pre_size} MiB");
-  //       log::debug!("Post closure size: {post_size} MiB");
-
-  //       println!("{}", "Closure Size:".underline().bold());
-  //       println!("Before: {pre_size} MiB");
-  //       println!("After: {post_size} MiB");
-  //       println!("Difference: {} MiB", post_size - pre_size);
-  //     },
-  //     (Ok(Err(e)), _) | (_, Ok(Err(e))) => {
-  //       log::error!("Error getting closure size: {e}");
-  //       eprintln!("Error getting closure size: {e}");
-  //     },
-  //     _ => {
-  //       log::error!(
-  //         "Failed to get closure size information due to a thread error"
-  //       );
-  //       eprintln!(
-  //         "Error: Failed to get closure size information due to a thread
-  // error"       );
-  //     },
-  //   }
-  // }
+  writeln!(
+    out,
+    "{header}: {size_diff}",
+    header = "DIFF".bold(),
+    size_diff = if size_diff.bytes() > 0 {
+      size_diff.green()
+    } else {
+      size_diff.red()
+    },
+  )?;
 
   Ok(())
 }

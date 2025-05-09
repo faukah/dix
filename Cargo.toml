@@ -11,12 +11,14 @@ clap-verbosity-flag = "3.0.2"
 derive_more         = { version = "2.0.1", features = [ "full" ] }
 diff                = "0.1.13"
 env_logger          = "0.11.3"
+itertools = "0.14.0"
 log                 = "0.4.20"
 ref-cast            = "1.0.24"
 regex               = "1.11.1"
 rusqlite            = { version = "0.35.0", features = [ "bundled" ] }
 rustc-hash          = "2.1.1"
 thiserror           = "2.0.12"
+unicode-width = "0.2.0"
 yansi               = { version = "1.0.1", features = [ "detect-env", "detect-tty" ] }
 
 [dev-dependencies]

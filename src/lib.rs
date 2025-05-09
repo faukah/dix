@@ -53,7 +53,7 @@ impl StorePath {
     static STORE_PATH_REGEX: sync::LazyLock<regex::Regex> =
       sync::LazyLock::new(|| {
         regex::Regex::new("(.+?)(-([0-9].*?))?$")
-          .expect("failed to compile regex pattern for nix store paths")
+          .expect("failed to compile regex for Nix store paths")
       });
 
     let path = self.to_str().with_context(|| {

@@ -1,9 +1,15 @@
-use std::fmt;
+use std::fmt::{
+  self,
+  Write as _,
+};
 
+use itertools::EitherOrBoth;
+use ref_cast::RefCast as _;
 use rustc_hash::{
   FxBuildHasher,
   FxHashMap,
 };
+use unicode_width::UnicodeWidthStr as _;
 use yansi::Paint as _;
 
 use crate::{
@@ -26,17 +32,13 @@ enum DiffStatus {
   Changed,
 }
 
-impl fmt::Display for DiffStatus {
-  fn fmt(&self, writer: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(
-      writer,
-      "[{letter}]",
-      letter = match *self {
-        DiffStatus::Added => "A".green(),
-        DiffStatus::Removed => "R".red(),
-        DiffStatus::Changed => "C".yellow(),
-      },
-    )
+impl DiffStatus {
+  fn char(self) -> impl fmt::Display {
+    match self {
+      DiffStatus::Added => "A".green(),
+      DiffStatus::Removed => "R".red(),
+      DiffStatus::Changed => "C".yellow(),
+    }
   }
 }
 
@@ -74,7 +76,10 @@ pub fn diff<'a>(
 
   let mut diffs = paths
     .into_iter()
-    .filter_map(|(name, versions)| {
+    .filter_map(|(name, mut versions)| {
+      versions.old.sort_unstable();
+      versions.new.sort_unstable();
+
       let status = match (versions.old.len(), versions.new.len()) {
         (0, 0) => unreachable!(),
         (0, _) => DiffStatus::Removed,
@@ -91,9 +96,15 @@ pub fn diff<'a>(
     a_status.cmp(&b_status).then_with(|| a_name.cmp(b_name))
   });
 
+  let name_width = diffs
+    .iter()
+    .map(|&(name, ..)| name.width())
+    .max()
+    .unwrap_or(0);
+
   let mut last_status = None::<DiffStatus>;
 
-  for (name, _versions, status) in diffs {
+  for (name, versions, status) in diffs {
     if last_status != Some(status) {
       last_status = Some(status);
       HEADER_STYLE.fmt_prefix(writer)?;
@@ -101,7 +112,59 @@ pub fn diff<'a>(
       HEADER_STYLE.fmt_suffix(writer)?;
     }
 
-    write!(writer, "{status} {name}")?;
+    write!(
+      writer,
+      "[{status}] {name:<name_width$}",
+      status = status.char()
+    )?;
+
+    let mut oldacc = String::new();
+    let mut newacc = String::new();
+
+    for diff in itertools::Itertools::zip_longest(
+      versions.old.iter(),
+      versions.new.iter(),
+    ) {
+      match diff {
+        // I have no idea why itertools is returning `versions.new` in `Left`.
+        EitherOrBoth::Left(new) => {
+          write!(
+            newacc,
+            " {new}",
+            new = new.unwrap_or(Version::ref_cast("<none>")).green()
+          )?;
+        },
+
+        EitherOrBoth::Both(old, new) => {
+          let (old, new) = Version::diff(
+            old.unwrap_or(Version::ref_cast("<none>")),
+            new.unwrap_or(Version::ref_cast("<none>")),
+          );
+
+          write!(oldacc, " {old}")?;
+          write!(newacc, " {new}")?;
+        },
+
+        EitherOrBoth::Right(old) => {
+          write!(
+            oldacc,
+            " {old}",
+            old = old.unwrap_or(Version::ref_cast("<none>")).red()
+          )?;
+        },
+      }
+    }
+
+    write!(
+      writer,
+      "{oldacc}{arrow}{newacc}",
+      arrow = if !oldacc.is_empty() && !newacc.is_empty() {
+        " →"
+      } else {
+        ""
+      }
+    )?;
+
     writeln!(writer)?;
   }
 

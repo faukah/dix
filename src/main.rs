@@ -111,31 +111,6 @@ fn real_main() -> Result<()> {
     paths_old.iter().map(|(_, path)| path),
     paths_new.iter().map(|(_, path)| path),
   )?;
-  // let PackageDiff {
-  //   pkg_to_versions_pre: pre,
-  //   pkg_to_versions_post: post,
-  //   pre_keys: _,
-  //   post_keys: _,
-  //   added,
-  //   removed,
-  //   changed,
-  // } = PackageDiff::new(&packages_old, &packages_after);
-
-  // log::debug!("Added packages: {}", added.len());
-  // log::debug!("Removed packages: {}", removed.len());
-  // log::debug!(
-  //   "Changed packages: {}",
-  //   changed
-  //     .iter()
-  //     .filter(|p| {
-  //       !p.is_empty()
-  //         && match (pre.get(*p), post.get(*p)) {
-  //           (Some(ver_pre), Some(ver_post)) => ver_pre != ver_post,
-  //           _ => false,
-  //         }
-  //     })
-  //     .count()
-  // );
 
   // println!("Difference between the two generations:");
   // println!();

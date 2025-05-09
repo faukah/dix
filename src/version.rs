@@ -20,15 +20,26 @@ impl PartialOrd for Version {
 
 impl cmp::Ord for Version {
   fn cmp(&self, that: &Self) -> cmp::Ordering {
-    let this = VersionComponentIter::from(&**self);
-    let that = VersionComponentIter::from(&**that);
+    let this = VersionComponentIter::from(&**self).filter_map(Result::ok);
+    let that = VersionComponentIter::from(&**that).filter_map(Result::ok);
 
     this.cmp(that)
   }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum VersionComponent<'a> {
+#[expect(clippy::into_iter_without_iter)]
+impl<'a> IntoIterator for &'a Version {
+  type Item = Result<VersionComponent<'a>, &'a str>;
+
+  type IntoIter = VersionComponentIter<'a>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    VersionComponentIter::from(&**self)
+  }
+}
+
+#[derive(Display, Debug, Clone, Copy, Eq, PartialEq)]
+pub enum VersionComponent<'a> {
   Number(u64),
   Text(&'a str),
 }
@@ -47,12 +58,12 @@ impl cmp::Ord for VersionComponent<'_> {
     };
 
     match (*self, *other) {
-      (Number(x), Number(y)) => x.cmp(&y),
-      (Text(x), Text(y)) => {
-        match (x, y) {
+      (Number(this), Number(that)) => this.cmp(&that),
+      (Text(this), Text(that)) => {
+        match (this, that) {
           ("pre", _) => cmp::Ordering::Less,
           (_, "pre") => cmp::Ordering::Greater,
-          _ => x.cmp(y),
+          _ => this.cmp(that),
         }
       },
       (Text(_), Number(_)) => cmp::Ordering::Less,
@@ -63,15 +74,16 @@ impl cmp::Ord for VersionComponent<'_> {
 
 /// Yields [`VertionComponent`] from a version string.
 #[derive(Deref, DerefMut, From)]
-struct VersionComponentIter<'a>(&'a str);
+pub struct VersionComponentIter<'a>(&'a str);
 
 impl<'a> Iterator for VersionComponentIter<'a> {
-  type Item = VersionComponent<'a>;
+  type Item = Result<VersionComponent<'a>, &'a str>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    // Skip all '-' and '.'.
-    while self.starts_with(['.', '-']) {
+    if self.starts_with(['.', '-']) {
+      let ret = &self[..1];
       **self = &self[1..];
+      return Some(Err(ret));
     }
 
     // Get the next character and decide if it is a digit.
@@ -92,9 +104,13 @@ impl<'a> Iterator for VersionComponentIter<'a> {
     assert!(!component.is_empty());
 
     if is_digit {
-      component.parse::<u64>().ok().map(VersionComponent::Number)
+      component
+        .parse::<u64>()
+        .ok()
+        .map(VersionComponent::Number)
+        .map(Ok)
     } else {
-      Some(VersionComponent::Text(component))
+      Some(Ok(VersionComponent::Text(component)))
     }
   }
 }
@@ -113,14 +129,19 @@ mod tests {
   fn version_component_iter() {
     let version = "132.1.2test234-1-man----.--.......---------..---";
 
-    assert_eq!(VersionComponentIter::from(version).collect::<Vec<_>>(), [
-      Number(132),
-      Number(1),
-      Number(2),
-      Text("test"),
-      Number(234),
-      Number(1),
-      Text("man")
-    ]);
+    assert_eq!(
+      VersionComponentIter::from(version)
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>(),
+      [
+        Number(132),
+        Number(1),
+        Number(2),
+        Text("test"),
+        Number(234),
+        Number(1),
+        Text("man")
+      ]
+    );
   }
 }

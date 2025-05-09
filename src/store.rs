@@ -41,7 +41,8 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
   let path = path.into_os_string().into_string().map_err(|path| {
     anyhow!(
       "failed to convert path '{path}' to valid unicode",
-      path = path.display(),
+      path = Path::new(&*path).display(), /* TODO: use .display() directly
+                                           * after Rust 1.87.0 in flake. */
     )
   })?;
 

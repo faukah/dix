@@ -35,9 +35,9 @@ enum DiffStatus {
 impl DiffStatus {
   fn char(self) -> impl fmt::Display {
     match self {
-      DiffStatus::Added => "A".green(),
-      DiffStatus::Removed => "R".red(),
-      DiffStatus::Changed => "C".yellow(),
+      Self::Added => "A".green(),
+      Self::Removed => "R".red(),
+      Self::Changed => "C".yellow(),
     }
   }
 }

@@ -6,11 +6,9 @@ use derive_more::{
   Display,
   From,
 };
-use ref_cast::RefCast;
 
-#[derive(RefCast, Deref, Display, Debug, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct Version(str);
+#[derive(Deref, DerefMut, Display, Debug, Clone, PartialEq, Eq, From)]
+pub struct Version(String);
 
 impl PartialOrd for Version {
   fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -20,21 +18,20 @@ impl PartialOrd for Version {
 
 impl cmp::Ord for Version {
   fn cmp(&self, that: &Self) -> cmp::Ordering {
-    let this = VersionComponentIter::from(&**self).filter_map(Result::ok);
-    let that = VersionComponentIter::from(&**that).filter_map(Result::ok);
+    let this = VersionComponentIter::from(&***self).filter_map(Result::ok);
+    let that = VersionComponentIter::from(&***that).filter_map(Result::ok);
 
     this.cmp(that)
   }
 }
 
-#[expect(clippy::into_iter_without_iter)]
 impl<'a> IntoIterator for &'a Version {
   type Item = Result<VersionComponent<'a>, &'a str>;
 
   type IntoIter = VersionComponentIter<'a>;
 
   fn into_iter(self) -> Self::IntoIter {
-    VersionComponentIter::from(&**self)
+    VersionComponentIter::from(&***self)
   }
 }
 
@@ -80,7 +77,7 @@ impl<'a> Iterator for VersionComponentIter<'a> {
   type Item = Result<VersionComponent<'a>, &'a str>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    if self.starts_with(['.', '-']) {
+    if self.starts_with(['.', '-', '*', ' ']) {
       let ret = &self[..1];
       **self = &self[1..];
       return Some(Err(ret));
@@ -93,7 +90,8 @@ impl<'a> Iterator for VersionComponentIter<'a> {
     let component_len = self
       .chars()
       .take_while(|&char| {
-        char.is_ascii_digit() == is_digit && !matches!(char, '.' | '-')
+        char.is_ascii_digit() == is_digit
+          && !matches!(char, '.' | '-' | '*' | ' ')
       })
       .map(char::len_utf8)
       .sum();

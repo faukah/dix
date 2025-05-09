@@ -4,19 +4,30 @@ use std::{
     self,
     Write as _,
   },
+  path::{
+    Path,
+    PathBuf,
+  },
+  thread,
 };
 
+use anyhow::{
+  Context as _,
+  Error,
+  Result,
+};
 use itertools::{
   EitherOrBoth,
   Itertools,
 };
-use ref_cast::RefCast as _;
+use size::Size;
 use unicode_width::UnicodeWidthStr as _;
 use yansi::Paint as _;
 
 use crate::{
   StorePath,
   Version,
+  store,
 };
 
 #[derive(Debug, Default)]
@@ -42,17 +53,118 @@ impl DiffStatus {
   }
 }
 
-pub fn write_diffln<'a>(
-  writer: &mut dyn fmt::Write,
+/// Writes the diff header (<<< out, >>>in) and package diff.
+///
+/// Returns the amount of package diffs written. Even when zero, the header will
+/// be written.
+pub fn write_paths_diffln(
+  writer: &mut impl fmt::Write,
+  path_old: &Path,
+  path_new: &Path,
+) -> Result<usize> {
+  let mut connection = store::connect()?;
+
+  let paths_old =
+    connection.query_depdendents(path_old).with_context(|| {
+      format!(
+        "failed to query dependencies of path '{path}'",
+        path = path_old.display()
+      )
+    })?;
+
+  log::info!(
+    "found {count} packages in old closure",
+    count = paths_old.len(),
+  );
+
+  let paths_new =
+    connection.query_depdendents(path_new).with_context(|| {
+      format!(
+        "failed to query dependencies of path '{path}'",
+        path = path_new.display()
+      )
+    })?;
+  log::info!(
+    "found {count} packages in new closure",
+    count = paths_new.len(),
+  );
+
+  drop(connection);
+
+  writeln!(
+    writer,
+    "{arrows} {old}",
+    arrows = "<<<".bold(),
+    old = path_old.display(),
+  )?;
+  writeln!(
+    writer,
+    "{arrows} {new}",
+    arrows = ">>>".bold(),
+    new = path_new.display(),
+  )?;
+
+  writeln!(writer)?;
+
+  #[expect(clippy::pattern_type_mismatch)]
+  Ok(write_packages_diffln(
+    writer,
+    paths_old.iter().map(|(_, path)| path),
+    paths_new.iter().map(|(_, path)| path),
+  )?)
+}
+
+fn deduplicate_versions(versions: &mut Vec<Version>) {
+  versions.sort_unstable();
+
+  let mut deduplicated = Vec::new();
+  let mut deduplicated_push = |mut version: Version, count: usize| {
+    if count > 1 {
+      write!(version, " * {count}").unwrap();
+    }
+    deduplicated.push(version);
+  };
+
+  let mut last_version = None::<(Version, usize)>;
+  for version in versions.iter() {
+    #[expect(clippy::mixed_read_write_in_expression)]
+    let Some((last_version_value, count)) = last_version.take() else {
+      last_version = Some((version.clone(), 1));
+      continue;
+    };
+
+    if last_version_value == *version {
+      last_version = Some((last_version_value, count + 1));
+    } else {
+      deduplicated_push(last_version_value, count);
+    }
+  }
+
+  if let Some((version, count)) = last_version.take() {
+    deduplicated_push(version, count);
+  }
+
+  *versions = deduplicated;
+}
+
+fn write_packages_diffln<'a>(
+  writer: &mut impl fmt::Write,
   paths_old: impl Iterator<Item = &'a StorePath>,
   paths_new: impl Iterator<Item = &'a StorePath>,
 ) -> Result<usize, fmt::Error> {
-  let mut paths = HashMap::<&str, Diff<Vec<Option<&Version>>>>::new();
+  let mut paths = HashMap::<&str, Diff<Vec<Version>>>::new();
 
   for path in paths_old {
     match path.parse_name_and_version() {
       Ok((name, version)) => {
-        paths.entry(name).or_default().old.push(version);
+        log::debug!("parsed name: {name}");
+        log::debug!("parsed version: {version:?}");
+
+        paths
+          .entry(name)
+          .or_default()
+          .old
+          .push(version.unwrap_or(Version::from("<none>".to_owned())));
       },
 
       Err(error) => {
@@ -64,7 +176,14 @@ pub fn write_diffln<'a>(
   for path in paths_new {
     match path.parse_name_and_version() {
       Ok((name, version)) => {
-        paths.entry(name).or_default().new.push(version);
+        log::debug!("parsed name: {name}");
+        log::debug!("parsed version: {version:?}");
+
+        paths
+          .entry(name)
+          .or_default()
+          .new
+          .push(version.unwrap_or(Version::from("<none>".to_owned())));
       },
 
       Err(error) => {
@@ -76,13 +195,13 @@ pub fn write_diffln<'a>(
   let mut diffs = paths
     .into_iter()
     .filter_map(|(name, mut versions)| {
-      versions.old.sort_unstable();
-      versions.new.sort_unstable();
+      deduplicate_versions(&mut versions.old);
+      deduplicate_versions(&mut versions.new);
 
       let status = match (versions.old.len(), versions.new.len()) {
         (0, 0) => unreachable!(),
-        (0, _) => DiffStatus::Removed,
-        (_, 0) => DiffStatus::Added,
+        (0, _) => DiffStatus::Added,
+        (_, 0) => DiffStatus::Removed,
         (..) if versions.old != versions.new => DiffStatus::Changed,
         (..) => return None,
       };
@@ -134,7 +253,7 @@ pub fn write_diffln<'a>(
     for diff in Itertools::zip_longest(versions.old.iter(), versions.new.iter())
     {
       match diff {
-        EitherOrBoth::Right(old_version) => {
+        EitherOrBoth::Left(old_version) => {
           if oldwrote {
             write!(oldacc, ", ")?;
           } else {
@@ -142,7 +261,7 @@ pub fn write_diffln<'a>(
             oldwrote = true;
           }
 
-          for old_comp in old_version.unwrap_or(Version::ref_cast("<none>")) {
+          for old_comp in old_version {
             match old_comp {
               Ok(old_comp) => write!(oldacc, "{old}", old = old_comp.red())?,
               Err(ignored) => write!(oldacc, "{ignored}")?,
@@ -150,8 +269,7 @@ pub fn write_diffln<'a>(
           }
         },
 
-        // I have no idea why itertools is returning `versions.new` in `Left`.
-        EitherOrBoth::Left(new_version) => {
+        EitherOrBoth::Right(new_version) => {
           if newwrote {
             write!(newacc, ", ")?;
           } else {
@@ -159,7 +277,7 @@ pub fn write_diffln<'a>(
             newwrote = true;
           }
 
-          for new_comp in new_version.unwrap_or(Version::ref_cast("<none>")) {
+          for new_comp in new_version {
             match new_comp {
               Ok(new_comp) => write!(newacc, "{new}", new = new_comp.green())?,
               Err(ignored) => write!(newacc, "{ignored}")?,
@@ -171,9 +289,6 @@ pub fn write_diffln<'a>(
           if old_version == new_version {
             continue;
           }
-
-          let old_version = old_version.unwrap_or(Version::ref_cast("<none>"));
-          let new_version = new_version.unwrap_or(Version::ref_cast("<none>"));
 
           if oldwrote {
             write!(oldacc, ", ")?;
@@ -193,7 +308,7 @@ pub fn write_diffln<'a>(
             new_version.into_iter(),
           ) {
             match diff {
-              EitherOrBoth::Right(old_comp) => {
+              EitherOrBoth::Left(old_comp) => {
                 match old_comp {
                   Ok(old_comp) => {
                     write!(oldacc, "{old}", old = old_comp.red())?;
@@ -204,7 +319,7 @@ pub fn write_diffln<'a>(
                 }
               },
 
-              EitherOrBoth::Left(new_comp) => {
+              EitherOrBoth::Right(new_comp) => {
                 match new_comp {
                   Ok(new_comp) => {
                     write!(newacc, "{new}", new = new_comp.green())?;
@@ -254,4 +369,50 @@ pub fn write_diffln<'a>(
   }
 
   Ok(diffs.len())
+}
+
+/// Spawns a task to compute the data required by [`write_size_diffln`].
+#[must_use]
+pub fn spawn_size_diff(
+  path_old: PathBuf,
+  path_new: PathBuf,
+) -> thread::JoinHandle<Result<(Size, Size)>> {
+  log::debug!("calculating closure sizes in background");
+
+  thread::spawn(move || {
+    let mut connection = store::connect()?;
+
+    Ok::<_, Error>((
+      connection.query_closure_size(&path_old)?,
+      connection.query_closure_size(&path_new)?,
+    ))
+  })
+}
+
+/// Writes the size difference.
+pub fn write_size_diffln(
+  writer: &mut impl fmt::Write,
+  size_old: Size,
+  size_new: Size,
+) -> fmt::Result {
+  let size_diff = size_new - size_old;
+
+  writeln!(
+    writer,
+    "{header}: {size_old} -> {size_new}",
+    header = "SIZE".bold(),
+    size_old = size_old.red(),
+    size_new = size_new.green(),
+  )?;
+
+  writeln!(
+    writer,
+    "{header}: {size_diff}",
+    header = "DIFF".bold(),
+    size_diff = if size_diff.bytes() > 0 {
+      size_diff.green()
+    } else {
+      size_diff.red()
+    },
+  )
 }

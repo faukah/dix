@@ -9,17 +9,13 @@ use std::{
   },
   path::PathBuf,
   process,
-  thread,
 };
 
 use anyhow::{
-  Context as _,
-  Error,
   Result,
   anyhow,
 };
 use clap::Parser as _;
-use dix::store;
 use yansi::Paint as _;
 
 struct WriteFmt<W: io::Write>(W);
@@ -64,108 +60,24 @@ fn real_main() -> Result<()> {
     })
     .init();
 
-  // Handle to the thread collecting closure size information.
-  // We do this as early as possible because Nix is slow.
-  let closure_size_handle = {
-    log::debug!("calculating closure sizes in background");
-
-    let old_path = old_path.clone();
-    let new_path = new_path.clone();
-
-    thread::spawn(move || {
-      let mut connection = store::connect()?;
-
-      Ok::<_, Error>((
-        connection.query_closure_size(&old_path)?,
-        connection.query_closure_size(&new_path)?,
-      ))
-    })
-  };
-
-  let mut connection = store::connect()?;
-
-  let paths_old =
-    connection.query_depdendents(&old_path).with_context(|| {
-      format!(
-        "failed to query dependencies of path '{path}'",
-        path = old_path.display()
-      )
-    })?;
-
-  log::info!(
-    "found {count} packages in old closure",
-    count = paths_old.len(),
-  );
-
-  let paths_new =
-    connection.query_depdendents(&new_path).with_context(|| {
-      format!(
-        "failed to query dependencies of path '{path}'",
-        path = new_path.display()
-      )
-    })?;
-
-  log::info!(
-    "found {count} packages in new closure",
-    count = paths_new.len(),
-  );
-
-  drop(connection);
-
   let mut out = WriteFmt(io::stdout());
 
-  writeln!(
-    out,
-    "{arrows} {old_path}",
-    arrows = "<<<".bold(),
-    old_path = old_path.display(),
-  )?;
-  writeln!(
-    out,
-    "{arrows} {new_path}",
-    arrows = ">>>".bold(),
-    new_path = new_path.display(),
-  )?;
+  // Handle to the thread collecting closure size information.
+  // We do this as early as possible because Nix is slow.
+  let closure_size_handle =
+    dix::spawn_size_diff(old_path.clone(), new_path.clone());
 
-  writeln!(out)?;
+  let wrote = dix::write_paths_diffln(&mut out, &old_path, &new_path)?;
 
-  #[expect(clippy::pattern_type_mismatch)]
-  let wrote = dix::write_diffln(
-    &mut out,
-    paths_old.iter().map(|(_, path)| path),
-    paths_new.iter().map(|(_, path)| path),
-  )?;
-
-  let (closure_size_old, closure_size_new) = closure_size_handle
+  let (size_old, size_new) = closure_size_handle
     .join()
     .map_err(|_| anyhow!("failed to get closure size due to thread error"))??;
-
-  let size_old = size::Size::from_bytes(closure_size_old);
-  let size_new = size::Size::from_bytes(closure_size_new);
-  let size_diff = size_new - size_old;
 
   if wrote > 0 {
     writeln!(out)?;
   }
 
-  writeln!(
-    out,
-    "{header}: {size_old} -> {size_new}",
-    header = "SIZE".bold(),
-    size_old = size_old.red(),
-    size_new = size_new.green(),
-  )?;
-
-  writeln!(
-    out,
-    "{header}: {size_diff}",
-    header = "DIFF".bold(),
-    size_diff = if size_diff.bytes() > 0 {
-      size_diff.green()
-    } else {
-      size_diff.red()
-    },
-  )?;
+  dix::write_size_diffln(&mut out, size_old, size_new)?;
 
   Ok(())
 }

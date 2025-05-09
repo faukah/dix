@@ -65,7 +65,7 @@ pub fn write_paths_diffln(
   path_old: &Path,
   path_new: &Path,
 ) -> Result<usize> {
-  let mut connection = store::connect()?;
+  let connection = store::connect()?;
 
   let paths_old = connection.query_dependents(path_old).with_context(|| {
     format!(
@@ -400,7 +400,7 @@ pub fn spawn_size_diff(
   log::debug!("calculating closure sizes in background");
 
   thread::spawn(move || {
-    let mut connection = store::connect()?;
+    let connection = store::connect()?;
 
     Ok::<_, Error>((
       connection.query_closure_size(&path_old)?,

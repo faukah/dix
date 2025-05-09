@@ -1,6 +1,9 @@
-use std::fmt::{
-  self,
-  Write as _,
+use std::{
+  fmt::{
+    self,
+    Write as _,
+  },
+  sync,
 };
 
 use itertools::EitherOrBoth;
@@ -128,29 +131,50 @@ pub fn diff<'a>(
       match diff {
         // I have no idea why itertools is returning `versions.new` in `Left`.
         EitherOrBoth::Left(new) => {
-          write!(
-            newacc,
-            " {new}",
-            new = new.unwrap_or(Version::ref_cast("<none>")).green()
-          )?;
-        },
+          let new = new.unwrap_or(Version::ref_cast("<none>"));
 
-        EitherOrBoth::Both(old, new) => {
-          let (old, new) = Version::diff(
-            old.unwrap_or(Version::ref_cast("<none>")),
-            new.unwrap_or(Version::ref_cast("<none>")),
-          );
-
-          write!(oldacc, " {old}")?;
-          write!(newacc, " {new}")?;
+          write!(newacc, " {new}", new = new.green())?;
         },
 
         EitherOrBoth::Right(old) => {
-          write!(
-            oldacc,
-            " {old}",
-            old = old.unwrap_or(Version::ref_cast("<none>")).red()
-          )?;
+          let old = old.unwrap_or(Version::ref_cast("<none>"));
+
+          write!(oldacc, " {old}", old = old.red())?;
+        },
+
+        EitherOrBoth::Both(old, new) => {
+          static NAME_SUFFIX_REGEX: sync::LazyLock<regex::Regex> =
+            sync::LazyLock::new(|| {
+              regex::Regex::new("(-man|-lib|-doc|-dev|-out|-terminfo)")
+                .expect("failed to compile regex for Nix store path versions")
+            });
+
+          let old = old.unwrap_or(Version::ref_cast("<none>"));
+          let new = new.unwrap_or(Version::ref_cast("<none>"));
+
+          let suffix = NAME_SUFFIX_REGEX.captures(old).map_or("", |matches| {
+            matches.get(0).map_or("", |capture| capture.as_str())
+          });
+
+          let old = old.strip_suffix(suffix).unwrap_or(old);
+          let new = new.strip_suffix(suffix).unwrap_or(new);
+
+          for diff in diff::chars(old, new) {
+            match diff {
+              diff::Result::Left(oldc) => {
+                write!(oldacc, "{oldc}", oldc = oldc.red()).unwrap();
+              },
+
+              diff::Result::Right(newc) => {
+                write!(newacc, "{newc}", newc = newc.green()).unwrap();
+              },
+
+              diff::Result::Both(oldc, newc) => {
+                write!(oldacc, "{oldc}", oldc = oldc.yellow()).unwrap();
+                write!(newacc, "{newc}", newc = newc.yellow()).unwrap();
+              },
+            }
+          }
         },
       }
     }

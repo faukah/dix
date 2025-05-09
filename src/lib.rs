@@ -27,7 +27,7 @@ use version::Version;
 #[derive(Deref, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct DerivationId(i64);
 
-/// A validated store path. Always starts with /nix/store.
+/// A validated store path. Always starts with `/nix/store`.
 ///
 /// Can be created using `StorePath::try_from(path_buf)`.
 #[derive(Deref, Debug, Clone, PartialEq, Eq, Hash)]
@@ -44,7 +44,7 @@ impl TryFrom<PathBuf> for StorePath {
       );
     }
 
-    Ok(StorePath(path))
+    Ok(Self(path))
   }
 }
 

@@ -47,7 +47,7 @@ pub fn write_diffln<'a>(
   writer: &mut dyn fmt::Write,
   paths_old: impl Iterator<Item = &'a StorePath>,
   paths_new: impl Iterator<Item = &'a StorePath>,
-) -> fmt::Result {
+) -> Result<usize, fmt::Error> {
   let mut paths =
     FxHashMap::<&str, Diff<Vec<Option<&Version>>>>::with_hasher(FxBuildHasher);
 
@@ -105,7 +105,7 @@ pub fn write_diffln<'a>(
 
   let mut last_status = None::<DiffStatus>;
 
-  for (name, versions, status) in diffs {
+  for &(name, ref versions, status) in &diffs {
     if last_status != Some(status) {
       writeln!(
         writer,
@@ -255,5 +255,5 @@ pub fn write_diffln<'a>(
     writeln!(writer)?;
   }
 
-  Ok(())
+  Ok(diffs.len())
 }

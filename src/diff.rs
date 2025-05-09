@@ -64,26 +64,24 @@ pub fn write_paths_diffln(
 ) -> Result<usize> {
   let mut connection = store::connect()?;
 
-  let paths_old =
-    connection.query_depdendents(path_old).with_context(|| {
-      format!(
-        "failed to query dependencies of path '{path}'",
-        path = path_old.display()
-      )
-    })?;
+  let paths_old = connection.query_dependents(path_old).with_context(|| {
+    format!(
+      "failed to query dependencies of path '{path}'",
+      path = path_old.display()
+    )
+  })?;
 
   log::info!(
     "found {count} packages in old closure",
     count = paths_old.len(),
   );
 
-  let paths_new =
-    connection.query_depdendents(path_new).with_context(|| {
-      format!(
-        "failed to query dependencies of path '{path}'",
-        path = path_new.display()
-      )
-    })?;
+  let paths_new = connection.query_dependents(path_new).with_context(|| {
+    format!(
+      "failed to query dependencies of path '{path}'",
+      path = path_new.display()
+    )
+  })?;
   log::info!(
     "found {count} packages in new closure",
     count = paths_new.len(),

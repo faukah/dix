@@ -44,7 +44,7 @@ pub fn connect() -> Result<Connection> {
   //
   // We read a large part of the DB anyways in each query,
   // so it makes sense to set aside a large region of memory-mapped
-  // I/O prevent incuring page faults which can be done using
+  // I/O prevent incurring page faults which can be done using
   // `mmap_size`.
   //
   // This made a performance difference of about 500ms (but only
@@ -94,7 +94,7 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 
 impl Connection {
   /// Gets the total closure size of the given store path by summing up the nar
-  /// size of all depdendent derivations.
+  /// size of all dependent derivations.
   pub fn query_closure_size(&mut self, path: &Path) -> Result<Size> {
     const QUERY: &str = "
       WITH RECURSIVE
@@ -120,7 +120,7 @@ impl Connection {
   }
 
   /// Gathers all derivations that the given profile path depends on.
-  pub fn query_depdendents(
+  pub fn query_dependents(
     &mut self,
     path: &Path,
   ) -> Result<Vec<(DerivationId, StorePath)>> {

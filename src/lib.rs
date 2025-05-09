@@ -13,17 +13,23 @@ use anyhow::{
 use derive_more::Deref;
 
 mod diff;
-pub use diff::write_diffln;
+pub use diff::{
+  spawn_size_diff,
+  write_paths_diffln,
+  write_size_diffln,
+};
 
-pub mod store;
+mod store;
 
 mod version;
-use ref_cast::RefCast as _;
-pub use version::Version;
+use version::Version;
 
 #[derive(Deref, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DerivationId(i64);
+struct DerivationId(i64);
 
+/// A validated store path. Always starts with /nix/store.
+///
+/// Can be created using `StorePath::try_from(path_buf)`.
 #[derive(Deref, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StorePath(PathBuf);
 
@@ -49,7 +55,7 @@ impl StorePath {
   /// This function first drops the inputs first 44 chars, since that is exactly
   /// the length of the `/nix/store/0004yybkm5hnwjyxv129js3mjp7kbrax-` prefix.
   /// Then it matches that against our store path regex.
-  pub fn parse_name_and_version(&self) -> Result<(&str, Option<&Version>)> {
+  fn parse_name_and_version(&self) -> Result<(&str, Option<Version>)> {
     static STORE_PATH_REGEX: sync::LazyLock<regex::Regex> =
       sync::LazyLock::new(|| {
         regex::Regex::new("(.+?)(-([0-9].*?))?$")
@@ -83,8 +89,8 @@ impl StorePath {
       bail!("failed to extract name from path '{path}'");
     }
 
-    let version: Option<&Version> = captures.get(2).map(|capture| {
-      Version::ref_cast(capture.as_str().trim_start_matches('-'))
+    let version: Option<Version> = captures.get(2).map(|capture| {
+      Version::from(capture.as_str().trim_start_matches('-').to_owned())
     });
 
     Ok((name, version))

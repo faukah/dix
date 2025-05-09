@@ -1,10 +1,22 @@
-use std::{collections::HashMap, path::Path, result};
+use std::{
+  collections::HashMap,
+  path::Path,
+  result,
+};
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{
+  Context as _,
+  Result,
+  anyhow,
+};
 use derive_more::Deref;
 use rusqlite::OpenFlags;
+use size::Size;
 
-use crate::{DerivationId, StorePath};
+use crate::{
+  DerivationId,
+  StorePath,
+};
 
 #[derive(Deref)]
 pub struct Connection(rusqlite::Connection);
@@ -17,41 +29,45 @@ pub fn connect() -> Result<Connection> {
 
   let inner = rusqlite::Connection::open_with_flags(
     DATABASE_PATH,
-    OpenFlags::SQLITE_OPEN_READ_ONLY // we only run queries, safeguard against corrupting the ddb
-      | OpenFlags::SQLITE_OPEN_NO_MUTEX // part of the default flags, rusqlite takes care of locking anyways
+    OpenFlags::SQLITE_OPEN_READ_ONLY // We only run queries, safeguard against corrupting the DB.
+      | OpenFlags::SQLITE_OPEN_NO_MUTEX // Part of the default flags, rusqlite takes care of locking anyways.
       | OpenFlags::SQLITE_OPEN_URI,
   )
   .with_context(|| {
     format!("failed to connect to Nix database at {DATABASE_PATH}")
   })?;
 
-  // perform a batched query to set some settings using PRAGMA
+  // Perform a batched query to set some settings using PRAGMA
   // the main performance bottleneck when dix was run before
   // was that the database file has to be brought from disk into
-  // memory
+  // memory.
   //
   // We read a large part of the DB anyways in each query,
   // so it makes sense to set aside a large region of memory-mapped
   // I/O prevent incuring page faults which can be done using
-  // `mmap_size`
+  // `mmap_size`.
   //
   // This made a performance difference of about 500ms (but only
-  // when it was first run!)
+  // when it was first run for a long time!).
   //
   // The file pages of the store can be evicted from main memory
-  // using `dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0`
-  // if you want to test this. (Source: [https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache])
+  // using `dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync
+  // count=0` if you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
   //
-  // Documentation about the settings can be found [here](https://www.sqlite.org/pragma.html)
+  // Documentation about the settings can be found here: <https://www.sqlite.org/pragma.html>
+  //
+  // [0]: 256MB, enough to fit the whole DB (at least on my system - Dragyx).
+  // [1]: Always store temporary tables ain memory.
   inner
     .execute_batch(
       "
-      PRAGMA mmap_size=268435456; -- 256MB, enough to fit the whole DB (at least on my system)
-      PRAGMA temp_store=2; -- store temporary tables always in memory
-      PRAGMA query_only;",
+        PRAGMA mmap_size=268435456; -- See [0].
+        PRAGMA temp_store=2; -- See [1].
+        PRAGMA query_only;
+      ",
     )
     .with_context(|| {
-      format!("Error during setup commansd of Nix databse as {DATABASE_PATH}")
+      format!("failed to cache Nix database at {DATABASE_PATH}")
     })?;
 
   Ok(Connection(inner))
@@ -79,7 +95,7 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 impl Connection {
   /// Gets the total closure size of the given store path by summing up the nar
   /// size of all depdendent derivations.
-  pub fn query_closure_size(&mut self, path: &Path) -> Result<usize> {
+  pub fn query_closure_size(&mut self, path: &Path) -> Result<Size> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
@@ -98,7 +114,7 @@ impl Connection {
 
     let closure_size = self
       .prepare_cached(QUERY)?
-      .query_row([path], |row| row.get(0))?;
+      .query_row([path], |row| Ok(Size::from_bytes(row.get::<_, i64>(0)?)))?;
 
     Ok(closure_size)
   }
@@ -143,6 +159,7 @@ impl Connection {
   /// We might want to collect the paths in the graph directly as
   /// well in the future, depending on how much we use them
   /// in the operations on the graph.
+  #[expect(dead_code)]
   pub fn query_dependency_graph(
     &mut self,
     path: &StorePath,

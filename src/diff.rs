@@ -59,6 +59,7 @@ impl DiffStatus {
 ///
 /// Will return the amount of package diffs written. Even when zero,
 /// the header will be written.
+#[expect(clippy::missing_errors_doc)]
 pub fn write_paths_diffln(
   writer: &mut impl fmt::Write,
   path_old: &Path,
@@ -408,7 +409,15 @@ pub fn spawn_size_diff(
   })
 }
 
-/// Writes the size difference.
+/// Writes the size difference between two numbers to `writer`.
+///
+/// # Returns
+///
+/// Will return nothing when successful.
+///
+/// # Errors
+///
+/// Returns `Err` when writing to `writer` fails.
 pub fn write_size_diffln(
   writer: &mut impl fmt::Write,
   size_old: Size,

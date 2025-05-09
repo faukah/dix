@@ -55,8 +55,10 @@ impl DiffStatus {
 
 /// Writes the diff header (<<< out, >>>in) and package diff.
 ///
-/// Returns the amount of package diffs written. Even when zero, the header will
-/// be written.
+/// # Returns
+///
+/// Will return the amount of package diffs written. Even when zero,
+/// the header will be written.
 pub fn write_paths_diffln(
   writer: &mut impl fmt::Write,
   path_old: &Path,
@@ -112,13 +114,28 @@ pub fn write_paths_diffln(
   )?)
 }
 
+/// Takes a list of versions which may contain duplicates and deduplicates it by
+/// replacing multiple occurrences of an element with the same element plus the
+/// amount it occurs.
+///
+/// # Example
+///
+/// ```rs
+/// let mut versions = vec!["2.3", "1.0", "2.3", "4.8", "2.3", "1.0"];
+///
+/// deduplicate_versions(&mut versions);
+/// assert_eq!(*versions, &["1.0 ×2", "2.3 ×3", "4.8"]);
+/// ```
 fn deduplicate_versions(versions: &mut Vec<Version>) {
   versions.sort_unstable();
 
   let mut deduplicated = Vec::new();
+
+  // Push a version onto the final vec. If it occurs more than once,
+  // we add a ×{count} to signify the amount of times it occurs.
   let mut deduplicated_push = |mut version: Version, count: usize| {
     if count > 1 {
-      write!(version, " * {count}").unwrap();
+      write!(version, " ×{count}").unwrap();
     }
     deduplicated.push(version);
   };
@@ -131,6 +148,8 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
       continue;
     };
 
+    // If the last version matches the current version, we increase the count by
+    // one. Otherwise, we push the last version to the result.
     if last_version_value == *version {
       last_version = Some((last_version_value, count + 1));
     } else {
@@ -138,6 +157,7 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
     }
   }
 
+  // Push the final element, if it exists.
   if let Some((version, count)) = last_version.take() {
     deduplicated_push(version, count);
   }
@@ -145,6 +165,7 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
   *versions = deduplicated;
 }
 
+#[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
 fn write_packages_diffln<'a>(
   writer: &mut impl fmt::Write,
   paths_old: impl Iterator<Item = &'a StorePath>,
@@ -162,7 +183,7 @@ fn write_packages_diffln<'a>(
           .entry(name)
           .or_default()
           .old
-          .push(version.unwrap_or(Version::from("<none>".to_owned())));
+          .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
       },
 
       Err(error) => {
@@ -181,7 +202,7 @@ fn write_packages_diffln<'a>(
           .entry(name)
           .or_default()
           .new
-          .push(version.unwrap_or(Version::from("<none>".to_owned())));
+          .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
       },
 
       Err(error) => {

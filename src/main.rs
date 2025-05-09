@@ -51,6 +51,17 @@ fn real_main() -> Result<()> {
 
   env_logger::Builder::new()
     .filter_level(verbose.log_level_filter())
+    .format(|out, arguments| {
+      let header = match arguments.level() {
+        log::Level::Error => "error:".red(),
+        log::Level::Warn => "warn:".yellow(),
+        log::Level::Info => "info:".green(),
+        log::Level::Debug => "debug:".blue(),
+        log::Level::Trace => "trace:".cyan(),
+      };
+
+      writeln!(out, "{header} {message}", message = arguments.args())
+    })
     .init();
 
   // Handle to the thread collecting closure size information.
@@ -81,7 +92,7 @@ fn real_main() -> Result<()> {
       )
     })?;
 
-  log::debug!(
+  log::info!(
     "found {count} packages in old closure",
     count = paths_old.len(),
   );
@@ -94,7 +105,7 @@ fn real_main() -> Result<()> {
       )
     })?;
 
-  log::debug!(
+  log::info!(
     "found {count} packages in new closure",
     count = paths_new.len(),
   );

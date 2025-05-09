@@ -58,7 +58,7 @@ pub fn write_diffln<'a>(
       },
 
       Err(error) => {
-        log::info!("error parsing old path name and version: {error}");
+        log::warn!("error parsing old path name and version: {error}");
       },
     }
   }
@@ -70,7 +70,7 @@ pub fn write_diffln<'a>(
       },
 
       Err(error) => {
-        log::info!("error parsing new path name and version: {error}");
+        log::warn!("error parsing new path name and version: {error}");
       },
     }
   }

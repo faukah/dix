@@ -1,8 +1,4 @@
-use std::{
-  cmp,
-  fmt::Write as _,
-  sync,
-};
+use std::cmp;
 
 use derive_more::{
   Deref,
@@ -11,7 +7,6 @@ use derive_more::{
   From,
 };
 use ref_cast::RefCast;
-use yansi::Paint as _;
 
 #[derive(RefCast, Deref, Display, Debug, PartialEq, Eq)]
 #[repr(transparent)]
@@ -29,46 +24,6 @@ impl cmp::Ord for Version {
     let that = VersionComponentIter::from(&**that);
 
     this.cmp(that)
-  }
-}
-
-impl Version {
-  pub fn diff(old: &Version, new: &Version) -> (String, String) {
-    static NAME_SUFFIX_REGEX: sync::LazyLock<regex::Regex> =
-      sync::LazyLock::new(|| {
-        regex::Regex::new("(-man|-lib|-doc|-dev|-out|-terminfo)")
-          .expect("failed to compile regex for Nix store path versions")
-      });
-
-    let matches = NAME_SUFFIX_REGEX.captures(old);
-    let suffix = matches.map_or("", |matches| {
-      matches.get(0).map_or("", |capture| capture.as_str())
-    });
-
-    let old = old.strip_suffix(suffix).unwrap_or(old);
-    let new = new.strip_suffix(suffix).unwrap_or(new);
-
-    let mut oldacc = String::new();
-    let mut newacc = String::new();
-
-    for diff in diff::chars(old, new) {
-      match diff {
-        diff::Result::Left(oldc) => {
-          write!(oldacc, "{oldc}", oldc = oldc.red()).unwrap();
-        },
-
-        diff::Result::Both(oldc, newc) => {
-          write!(oldacc, "{oldc}", oldc = oldc.yellow()).unwrap();
-          write!(newacc, "{newc}", newc = newc.yellow()).unwrap();
-        },
-
-        diff::Result::Right(newc) => {
-          write!(newacc, "{newc}", newc = newc.green()).unwrap();
-        },
-      }
-    }
-
-    (oldacc, newacc)
   }
 }
 

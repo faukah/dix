@@ -95,7 +95,7 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 impl Connection {
   /// Gets the total closure size of the given store path by summing up the nar
   /// size of all dependent derivations.
-  pub fn query_closure_size(&mut self, path: &Path) -> Result<Size> {
+  pub fn query_closure_size(&self, path: &Path) -> Result<Size> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
@@ -121,7 +121,7 @@ impl Connection {
 
   /// Gathers all derivations that the given profile path depends on.
   pub fn query_dependents(
-    &mut self,
+    &self,
     path: &Path,
   ) -> Result<Vec<(DerivationId, StorePath)>> {
     const QUERY: &str = "
@@ -161,7 +161,7 @@ impl Connection {
   /// in the operations on the graph.
   #[expect(dead_code)]
   pub fn query_dependency_graph(
-    &mut self,
+    &self,
     path: &StorePath,
   ) -> Result<HashMap<DerivationId, Vec<DerivationId>>> {
     const QUERY: &str = "

@@ -130,7 +130,7 @@ fn real_main() -> Result<()> {
   writeln!(out)?;
 
   #[expect(clippy::pattern_type_mismatch)]
-  dix::write_diffln(
+  let wrote = dix::write_diffln(
     &mut out,
     paths_old.iter().map(|(_, path)| path),
     paths_new.iter().map(|(_, path)| path),
@@ -144,7 +144,9 @@ fn real_main() -> Result<()> {
   let size_new = size::Size::from_bytes(closure_size_new);
   let size_diff = size_new - size_old;
 
-  writeln!(out)?;
+  if wrote > 0 {
+    writeln!(out)?;
+  }
 
   writeln!(
     out,

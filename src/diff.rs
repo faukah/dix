@@ -244,7 +244,7 @@ pub fn write_diffln<'a>(
       writer,
       "{oldacc}{arrow}{newacc}",
       arrow = if !oldacc.is_empty() && !newacc.is_empty() {
-        " →"
+        " ->"
       } else {
         ""
       }

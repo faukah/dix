@@ -1,5 +1,5 @@
 {
-  description = "Diff Nix";
+  description = "Dix - Diff Nix";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -11,8 +11,18 @@
     pkgsFor = inputs.nixpkgs.legacyPackages;
   in {
     packages = eachSystem (system: {
-      default = inputs.self.packages.${system}.ralc;
-      ralc = pkgsFor.${system}.callPackage ./nix/package.nix {};
+      default = inputs.self.packages.${system}.dix;
+      dix = pkgsFor.${system}.callPackage ./nix/package.nix {};
+    });
+
+    apps = eachSystem (system: let
+      inherit (inputs.self.packages.${system}) dix;
+    in {
+      default = inputs.self.apps.${system}.dix;
+      dix = {
+        type = "app";
+        program = "${dix}/bin/dix";
+      };
     });
 
     devShells = eachSystem (system: {

@@ -77,10 +77,12 @@ impl<'a> Iterator for VersionComponentIter<'a> {
   type Item = Result<VersionComponent<'a>, &'a str>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    if self.starts_with(['.', '-', '*', ' ']) {
-      let ret = &self[..1];
-      **self = &self[1..];
-      return Some(Err(ret));
+    if self.starts_with(['.', '-', '*', '×', ' ']) {
+      let len = self.chars().next().unwrap().len_utf8();
+      let (this, rest) = self.split_at(len);
+
+      **self = rest;
+      return Some(Err(this));
     }
 
     // Get the next character and decide if it is a digit.
@@ -91,7 +93,7 @@ impl<'a> Iterator for VersionComponentIter<'a> {
       .chars()
       .take_while(|&char| {
         char.is_ascii_digit() == is_digit
-          && !matches!(char, '.' | '-' | '*' | ' ')
+          && !matches!(char, '.' | '-' | '*' | ' ' | '×')
       })
       .map(char::len_utf8)
       .sum();

@@ -1,4 +1,5 @@
 use std::{
+  cmp,
   collections::HashMap,
   fmt::{
     self,
@@ -38,17 +39,21 @@ struct Diff<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum DiffStatus {
-  Changed,
   Added,
   Removed,
+  Changed,
+  Upgraded,
+  Downgraded,
 }
 
 impl DiffStatus {
   fn char(self) -> impl fmt::Display {
     match self {
-      Self::Added => "A".green(),
-      Self::Removed => "R".red(),
-      Self::Changed => "C".yellow(),
+      Self::Added => "A".green().bold(),
+      Self::Removed => "R".red().bold(),
+      Self::Changed => "C".yellow().bold(),
+      Self::Upgraded => "U".bright_cyan().bold(),
+      Self::Downgraded => "D".magenta().bold(),
     }
   }
 }
@@ -222,8 +227,37 @@ fn write_packages_diffln<'a>(
         (0, 0) => unreachable!(),
         (0, _) => DiffStatus::Added,
         (_, 0) => DiffStatus::Removed,
-        (..) if versions.old != versions.new => DiffStatus::Changed,
-        (..) => return None,
+        _ => {
+          let mut saw_upgrade = false;
+          let mut saw_downgrade = false;
+
+          for diff in
+            Itertools::zip_longest(versions.old.iter(), versions.new.iter())
+          {
+            match diff {
+              EitherOrBoth::Both(old, new) => {
+                match old.cmp(new) {
+                  cmp::Ordering::Less => saw_upgrade = true,
+                  cmp::Ordering::Greater => saw_downgrade = true,
+                  cmp::Ordering::Equal => {},
+                }
+
+                if saw_upgrade && saw_downgrade {
+                  break;
+                }
+              },
+              EitherOrBoth::Left(_) => saw_downgrade = true,
+              EitherOrBoth::Right(_) => saw_upgrade = true,
+            }
+          }
+
+          match (saw_upgrade, saw_downgrade) {
+            (true, true) => DiffStatus::Changed,
+            (true, false) => DiffStatus::Upgraded,
+            (false, true) => DiffStatus::Downgraded,
+            _ => return None,
+          }
+        },
       };
 
       Some((name, versions, status))
@@ -252,6 +286,8 @@ fn write_packages_diffln<'a>(
           DiffStatus::Added => "ADDED",
           DiffStatus::Removed => "REMOVED",
           DiffStatus::Changed => "CHANGED",
+          DiffStatus::Upgraded => "UPGRADED",
+          DiffStatus::Downgraded => "DOWNGRADED",
         }
         .bold(),
       )?;

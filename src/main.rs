@@ -19,6 +19,7 @@ use anyhow::{
   anyhow,
 };
 use clap::Parser as _;
+use dix::store;
 use yansi::Paint as _;
 
 struct WriteFmt<W: io::Write>(W);
@@ -61,7 +62,7 @@ fn real_main() -> Result<()> {
     let new_path = new_path.clone();
 
     thread::spawn(move || {
-      let mut connection = dix::store::connect()?;
+      let mut connection = store::connect()?;
 
       Ok::<_, Error>((
         connection.query_closure_size(&old_path)?,
@@ -70,7 +71,7 @@ fn real_main() -> Result<()> {
     })
   };
 
-  let mut connection = dix::store::connect()?;
+  let mut connection = store::connect()?;
 
   let paths_old =
     connection.query_depdendents(&old_path).with_context(|| {

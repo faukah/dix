@@ -2,7 +2,8 @@
 
 A tool to diff any Nix related thing.
 
-Currently only supports system closures.
+Currently only supports closures (a derivation graph, such as a system build or
+package).
 
 ## Usage
 

@@ -4,6 +4,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     systems.url = "github:nix-systems/default";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs: let
@@ -32,12 +36,17 @@
             (pkgsFor.${system})
             cargo
             rustc
-            rustfmt
             bacon
             ;
           inherit
             (pkgsFor.${system}.rustPackages)
             clippy
+            ;
+
+          inherit
+            ((pkgsFor.${system}.extend
+                inputs.rust-overlay.overlays.default).rust-bin.nightly.latest)
+            rustfmt
             ;
         };
       };

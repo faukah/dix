@@ -7,6 +7,7 @@ use std::{
 use anyhow::{
   Context as _,
   Result,
+  anyhow,
 };
 use derive_more::Deref;
 
@@ -14,24 +15,6 @@ use crate::{
   DerivationId,
   StorePath,
 };
-
-macro_rules! path_to_str {
-  ($path:ident) => {
-    let $path = $path.canonicalize().with_context(|| {
-      format!(
-        "failed to canonicalize path '{path}'",
-        path = $path.display(),
-      )
-    })?;
-
-    let $path = $path.to_str().with_context(|| {
-      format!(
-        "failed to convert path '{path}' to valid unicode",
-        path = $path.display(),
-      )
-    })?;
-  };
-}
 
 #[derive(Deref)]
 pub struct Connection(rusqlite::Connection);
@@ -45,6 +28,24 @@ pub fn connect() -> Result<Connection> {
   })?;
 
   Ok(Connection(inner))
+}
+
+fn path_to_canonical_string(path: &Path) -> Result<String> {
+  let path = path.canonicalize().with_context(|| {
+    format!(
+      "failed to canonicalize path '{path}'",
+      path = path.display(),
+    )
+  })?;
+
+  let path = path.into_os_string().into_string().map_err(|path| {
+    anyhow!(
+      "failed to convert path '{path}' to valid unicode",
+      path = path.display(),
+    )
+  })?;
+
+  Ok(path)
 }
 
 impl Connection {
@@ -65,7 +66,7 @@ impl Connection {
       JOIN ValidPaths ON p = id;
     ";
 
-    path_to_str!(path);
+    let path = path_to_canonical_string(path)?;
 
     let closure_size = self
       .prepare_cached(QUERY)?
@@ -93,7 +94,7 @@ impl Connection {
       JOIN ValidPaths ON id = p;
     ";
 
-    path_to_str!(path);
+    let path = path_to_canonical_string(path)?;
 
     let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
       .prepare_cached(QUERY)?
@@ -132,7 +133,7 @@ impl Connection {
       SELECT p, c from graph;
     ";
 
-    path_to_str!(path);
+    let path = path_to_canonical_string(path)?;
 
     let mut adj = HashMap::<DerivationId, Vec<DerivationId>>::new();
 

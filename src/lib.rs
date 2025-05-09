@@ -13,7 +13,7 @@ use anyhow::{
 use derive_more::Deref;
 
 mod diff;
-pub use diff::diff;
+pub use diff::write_diffln;
 
 pub mod store;
 

@@ -1,4 +1,5 @@
 use std::{
+  collections::HashMap,
   path::Path,
   result,
 };
@@ -8,10 +9,6 @@ use anyhow::{
   Result,
 };
 use derive_more::Deref;
-use rustc_hash::{
-  FxBuildHasher,
-  FxHashMap,
-};
 
 use crate::{
   DerivationId,
@@ -120,7 +117,7 @@ impl Connection {
   pub fn query_dependency_graph(
     &mut self,
     path: &StorePath,
-  ) -> Result<FxHashMap<DerivationId, Vec<DerivationId>>> {
+  ) -> Result<HashMap<DerivationId, Vec<DerivationId>>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p, c) AS (
@@ -137,8 +134,7 @@ impl Connection {
 
     path_to_str!(path);
 
-    let mut adj =
-      FxHashMap::<DerivationId, Vec<DerivationId>>::with_hasher(FxBuildHasher);
+    let mut adj = HashMap::<DerivationId, Vec<DerivationId>>::new();
 
     let mut statement = self.prepare_cached(QUERY)?;
 

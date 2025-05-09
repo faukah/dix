@@ -1,6 +1,9 @@
-use std::fmt::{
-  self,
-  Write as _,
+use std::{
+  collections::HashMap,
+  fmt::{
+    self,
+    Write as _,
+  },
 };
 
 use itertools::{
@@ -8,10 +11,6 @@ use itertools::{
   Itertools,
 };
 use ref_cast::RefCast as _;
-use rustc_hash::{
-  FxBuildHasher,
-  FxHashMap,
-};
 use unicode_width::UnicodeWidthStr as _;
 use yansi::Paint as _;
 
@@ -48,8 +47,7 @@ pub fn write_diffln<'a>(
   paths_old: impl Iterator<Item = &'a StorePath>,
   paths_new: impl Iterator<Item = &'a StorePath>,
 ) -> Result<usize, fmt::Error> {
-  let mut paths =
-    FxHashMap::<&str, Diff<Vec<Option<&Version>>>>::with_hasher(FxBuildHasher);
+  let mut paths = HashMap::<&str, Diff<Vec<Option<&Version>>>>::new();
 
   for path in paths_old {
     match path.parse_name_and_version() {

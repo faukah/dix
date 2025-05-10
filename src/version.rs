@@ -35,11 +35,16 @@ impl<'a> IntoIterator for &'a Version {
   }
 }
 
-#[derive(Display, Debug, Clone, Copy, Eq, PartialEq)]
-pub enum VersionComponent<'a> {
-  Number(u64),
-  Text(&'a str),
+#[derive(Deref, Display, Debug, Clone, Copy)]
+pub struct VersionComponent<'a>(&'a str);
+
+impl PartialEq for VersionComponent<'_> {
+  fn eq(&self, other: &Self) -> bool {
+    self.cmp(other) == cmp::Ordering::Equal
+  }
 }
+
+impl Eq for VersionComponent<'_> {}
 
 impl PartialOrd for VersionComponent<'_> {
   fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -49,22 +54,30 @@ impl PartialOrd for VersionComponent<'_> {
 
 impl cmp::Ord for VersionComponent<'_> {
   fn cmp(&self, other: &Self) -> cmp::Ordering {
-    use VersionComponent::{
-      Number,
-      Text,
-    };
+    let self_digit = self.0.bytes().all(|char| char.is_ascii_digit());
+    let other_digit = other.0.bytes().all(|char| char.is_ascii_digit());
 
-    match (*self, *other) {
-      (Number(this), Number(that)) => this.cmp(&that),
-      (Text(this), Text(that)) => {
-        match (this, that) {
+    match (self_digit, other_digit) {
+      (true, true) => {
+        let self_nonzero = self.0.trim_start_matches('0');
+        let other_nonzero = other.0.trim_start_matches('0');
+
+        self_nonzero
+          .len()
+          .cmp(&other_nonzero.len())
+          .then_with(|| self_nonzero.cmp(other_nonzero))
+      },
+
+      (false, false) => {
+        match (self.0, other.0) {
           ("pre", _) => cmp::Ordering::Less,
           (_, "pre") => cmp::Ordering::Greater,
-          _ => this.cmp(that),
+          _ => self.0.cmp(other.0),
         }
       },
-      (Text(_), Number(_)) => cmp::Ordering::Less,
-      (Number(_), Text(_)) => cmp::Ordering::Greater,
+
+      (true, false) => cmp::Ordering::Greater,
+      (false, true) => cmp::Ordering::Less,
     }
   }
 }
@@ -103,25 +116,16 @@ impl<'a> Iterator for VersionComponentIter<'a> {
 
     assert!(!component.is_empty());
 
-    if is_digit {
-      component
-        .parse::<u64>()
-        .ok()
-        .map(VersionComponent::Number)
-        .map(Ok)
-    } else {
-      Some(Ok(VersionComponent::Text(component)))
-    }
+    Some(Ok(VersionComponent(component)))
   }
 }
 
 #[cfg(test)]
 mod tests {
-  use crate::version::{
-    VersionComponent::{
-      Number,
-      Text,
-    },
+  use proptest::proptest;
+
+  use super::{
+    VersionComponent,
     VersionComponentIter,
   };
 
@@ -134,14 +138,26 @@ mod tests {
         .filter_map(Result::ok)
         .collect::<Vec<_>>(),
       [
-        Number(132),
-        Number(1),
-        Number(2),
-        Text("test"),
-        Number(234),
-        Number(1),
-        Text("man")
+        VersionComponent("132"),
+        VersionComponent("1"),
+        VersionComponent("2"),
+        VersionComponent("test"),
+        VersionComponent("234"),
+        VersionComponent("1"),
+        VersionComponent("man")
       ]
     );
+  }
+
+  proptest! {
+    #[test]
+    fn version_cmp_number(this: u128, that: u128) {
+      let real_ord = this.cmp(&that);
+
+      let component_ord = VersionComponent(&this.to_string())
+        .cmp(&VersionComponent(&that.to_string()));
+
+      assert_eq!(real_ord, component_ord);
+    }
   }
 }

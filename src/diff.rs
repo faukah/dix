@@ -37,24 +37,50 @@ struct Diff<T> {
   new: T,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiffStatus {
-  Added,
-  Removed,
   Changed,
   Upgraded,
   Downgraded,
+  Added,
+  Removed,
 }
 
 impl DiffStatus {
   fn char(self) -> impl fmt::Display {
     match self {
-      Self::Added => "A".green().bold(),
-      Self::Removed => "R".red().bold(),
       Self::Changed => "C".yellow().bold(),
       Self::Upgraded => "U".bright_cyan().bold(),
       Self::Downgraded => "D".magenta().bold(),
+      Self::Added => "A".green().bold(),
+      Self::Removed => "R".red().bold(),
     }
+  }
+}
+impl cmp::Ord for DiffStatus {
+  fn cmp(&self, other: &Self) -> cmp::Ordering {
+    use DiffStatus::{
+      Added,
+      Changed,
+      Downgraded,
+      Removed,
+      Upgraded,
+    };
+    #[expect(clippy::match_same_arms)]
+    match (*self, *other) {
+      // Changeds get displayed earlier than adds or removes.
+      (Changed | Upgraded | Downgraded, Removed | Added) => cmp::Ordering::Less,
+      // adds get displayed before removes
+      (Added, Removed) => cmp::Ordering::Less,
+      (Removed | Added, _) => cmp::Ordering::Greater,
+      _ => cmp::Ordering::Equal,
+    }
+  }
+}
+
+impl PartialOrd for DiffStatus {
+  fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+    Some(self.cmp(other))
   }
 }
 
@@ -297,10 +323,10 @@ fn write_packages_diffln<'a>(
         "{nl}{status}",
         nl = if last_status.is_some() { "\n" } else { "" },
         status = match merged_status {
-          Added => "ADDED",
-          Removed => "REMOVED",
           Changed => "CHANGED",
           Upgraded | Downgraded => unreachable!(),
+          Added => "ADDED",
+          Removed => "REMOVED",
         }
         .bold(),
       )?;

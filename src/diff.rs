@@ -235,6 +235,9 @@ fn write_packages_diffln<'a>(
             Itertools::zip_longest(versions.old.iter(), versions.new.iter())
           {
             match diff {
+              EitherOrBoth::Left(_) => saw_downgrade = true,
+              EitherOrBoth::Right(_) => saw_upgrade = true,
+
               EitherOrBoth::Both(old, new) => {
                 match old.cmp(new) {
                   cmp::Ordering::Less => saw_upgrade = true,
@@ -246,8 +249,6 @@ fn write_packages_diffln<'a>(
                   break;
                 }
               },
-              EitherOrBoth::Left(_) => saw_downgrade = true,
-              EitherOrBoth::Right(_) => saw_upgrade = true,
             }
           }
 
@@ -277,22 +278,34 @@ fn write_packages_diffln<'a>(
   let mut last_status = None::<DiffStatus>;
 
   for &(name, ref versions, status) in &diffs {
-    if last_status != Some(status) {
+    use DiffStatus::{
+      Added,
+      Changed,
+      Downgraded,
+      Removed,
+      Upgraded,
+    };
+    let merged_status = if let Downgraded | Upgraded = status {
+      Changed
+    } else {
+      status
+    };
+
+    if last_status != Some(merged_status) {
       writeln!(
         writer,
         "{nl}{status}",
         nl = if last_status.is_some() { "\n" } else { "" },
-        status = match status {
-          DiffStatus::Added => "ADDED",
-          DiffStatus::Removed => "REMOVED",
-          DiffStatus::Changed => "CHANGED",
-          DiffStatus::Upgraded => "UPGRADED",
-          DiffStatus::Downgraded => "DOWNGRADED",
+        status = match merged_status {
+          Added => "ADDED",
+          Removed => "REMOVED",
+          Changed => "CHANGED",
+          Upgraded | Downgraded => unreachable!(),
         }
         .bold(),
       )?;
 
-      last_status = Some(status);
+      last_status = Some(merged_status);
     }
 
     write!(

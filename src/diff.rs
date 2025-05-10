@@ -360,12 +360,20 @@ fn write_packages_diffln<'a>(
                 }
 
                 if let (Ok(old_comp), Ok(new_comp)) = (old_comp, new_comp) {
-                  if old_comp == new_comp {
-                    write!(oldacc, "{old}", old = old_comp.yellow())?;
-                    write!(newacc, "{new}", new = new_comp.yellow())?;
-                  } else {
-                    write!(oldacc, "{old}", old = old_comp.red())?;
-                    write!(newacc, "{new}", new = new_comp.green())?;
+                  for char in diff::chars(*old_comp, *new_comp) {
+                    match char {
+                      diff::Result::Left(old_part) => {
+                        write!(oldacc, "{old}", old = old_part.red())?;
+                      },
+                      diff::Result::Right(new_part) => {
+                        write!(newacc, "{new}", new = new_part.green())?;
+                      },
+
+                      diff::Result::Both(old_part, new_part) => {
+                        write!(oldacc, "{old}", old = old_part.yellow())?;
+                        write!(newacc, "{new}", new = new_part.yellow())?;
+                      },
+                    }
                   }
                 }
               },

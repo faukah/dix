@@ -9,6 +9,7 @@ package).
 
 ```bash
 $ dix --help
+
 Diff Nix
 
 Usage: dix [OPTIONS] <OLD_PATH> <NEW_PATH>
@@ -22,12 +23,13 @@ Options:
   -q, --quiet...    Decrease logging verbosity
   -h, --help        Print help
   -V, --version     Print version
+
 $ dix /nix/var/profiles/system-69-link /run/current-system
 ```
 
 ## Output
 
-![output of `dix /nix/var/nix/profiles/system-165-link/ /run/current-system`](.github/dix.png)
+![output of `dix /nix/var/nix/profiles/system-69-link/ /run/current-system`](.github/dix.png)
 
 ## License
 

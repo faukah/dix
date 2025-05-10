@@ -39,7 +39,7 @@ unknown-registry = "deny"
 
 [licenses]
 allow = [
-  "GPL-3.0-only",
+  "GPL-3.0",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "MIT",

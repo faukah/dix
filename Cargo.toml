@@ -4,6 +4,9 @@ description = "Diff Nix"
 version     = "0.1.0"
 license     = "GPL-3.0-only"
 edition     = "2024"
+homepage    = "https://github.com/bloxx12/dix"
+repository  = "https://github.com/bloxx12/dix"
+keywords    = [ "nix", "nixos" ]
 
 [dependencies]
 anyhow              = "1.0.98"

@@ -2,6 +2,7 @@
 name        = "dix"
 description = "Diff Nix"
 version     = "0.1.0"
+license     = "MIT"
 edition     = "2024"
 
 [dependencies]

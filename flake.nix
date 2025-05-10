@@ -1,54 +1,159 @@
 {
   description = "Dix - Diff Nix";
 
+  nixConfig = {
+    extra-substituters = [
+      "https://dix.cachix.io/"
+    ];
+
+    extra-trusted-public-keys = [
+      "dix.cachix.org-1:8zQJZGvlOLYwlSCY/gVY14rqL8taVslOVbtT0jZFDGk="
+    ];
+  };
+
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     systems.url = "github:nix-systems/default";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
+
+    crane.url = "github:ipetkov/crane";
+
+    fenix = {
+      url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    advisory-db = {
+      url = "github:rustsec/advisory-db";
+      flake = false;
     };
   };
 
-  outputs = inputs: let
-    eachSystem = inputs.nixpkgs.lib.genAttrs (import inputs.systems);
-    pkgsFor = inputs.nixpkgs.legacyPackages;
+  outputs = inputs @ { self, nixpkgs, systems, ... }: let
+    inherit (nixpkgs) lib;
+
+    eachSystem = lib.genAttrs (import systems);
+
+    pkgsFor = eachSystem (system: import nixpkgs {
+      inherit system;
+
+      overlays = [
+        inputs.fenix.overlays.default
+
+        (self: _: {
+          crane = (inputs.crane.mkLib self).overrideToolchain (self.fenix.combine (lib.attrValues {
+            inherit (self.fenix.stable)
+              cargo
+              clippy
+              rust-analyzer
+              rustc
+            ;
+
+            # Nightly rustfmt for the formatting options.
+            inherit (self.fenix.default)
+              rustfmt
+            ;
+          }));
+
+          dix = {
+            src = self.crane.cleanCargoSource ./.;
+
+            cargoArguments = {
+              inherit (self.dix) src;
+
+              strictDeps = true;
+            };
+
+            cargoArtifacts = self.crane.buildDepsOnly self.dix.cargoArguments;
+          };
+        })
+      ];
+    });
   in {
-    packages = eachSystem (system: {
-      default = inputs.self.packages.${system}.dix;
-      dix = pkgsFor.${system}.callPackage ./nix/package.nix {};
+    packages = eachSystem (system: let pkgs = pkgsFor.${system}; in {
+      default = self.packages.${system}.dix;
+
+      dix = pkgs.crane.buildPackage (pkgs.dix.cargoArguments // {
+        inherit (pkgs.dix) cargoArtifacts;
+
+        pname = "dix";
+        cargoExtraArgs = "--package dix";
+
+        doCheck = false;
+      });
     });
 
-    apps = eachSystem (system: let
-      inherit (inputs.self.packages.${system}) dix;
-    in {
-      default = inputs.self.apps.${system}.dix;
-      dix = {
-        type = "app";
-        program = "${dix}/bin/dix";
+    devShells = eachSystem (system: let pkgs = pkgsFor.${system}; in {
+      default = self.devShells.${system}.dix;
+
+      dix = pkgs.crane.devShell {
+        packages = lib.attrValues {
+          inherit (pkgs)
+            # A nice compiler daemon.
+            bacon
+
+            # Better tests.
+            cargo-nextest
+
+            # TOML formatting.
+            taplo
+          ;
+        };
+
+        # For some reason rust-analyzer doesn't pick it up sometimes.
+        env.CLIPPY_CONF_DIR = pkgs.writeTextDir "clippy.toml" (lib.readFile ./.clippy.toml);
+
+        shellHook = ''
+          # So we can do `dix` instead of `./target/debug/dix`
+          root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+          export PATH="$PATH":"$root/target/debug"
+        '';
       };
     });
 
-    devShells = eachSystem (system: {
-      default = pkgsFor.${system}.mkShell {
-        packages = builtins.attrValues {
-          inherit
-            (pkgsFor.${system})
-            cargo
-            rustc
-            bacon
-            ;
-          inherit
-            (pkgsFor.${system}.rustPackages)
-            clippy
-            ;
+    checks = eachSystem (system: let pkgs = pkgsFor.${system}; in {
+      inherit (self.packages.${system}) dix;
 
-          inherit
-            ((pkgsFor.${system}.extend
-                inputs.rust-overlay.overlays.default).rust-bin.nightly.latest)
-            rustfmt
-            ;
-        };
+      dix-doctest = pkgs.crane.cargoDocTest (pkgs.dix.cargoArguments // {
+        inherit (pkgs.dix) cargoArtifacts;
+      });
+
+      dix-nextest = pkgs.crane.cargoNextest (pkgs.dix.cargoArguments // {
+        inherit (pkgs.dix) cargoArtifacts;
+      });
+
+      dix-clippy = pkgs.crane.cargoClippy (pkgs.dix.cargoArguments // {
+        inherit (pkgs.dix) cargoArtifacts;
+
+        env.CLIPPY_CONF_DIR = pkgs.writeTextDir "clippy.toml" (lib.readFile ./.clippy.toml);
+
+        cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+      });
+
+      dix-doc = pkgs.crane.cargoDoc (pkgs.dix.cargoArguments // {
+        inherit (pkgs.dix) cargoArtifacts;
+      });
+
+      dix-fmt = pkgs.crane.cargoFmt {
+        inherit (pkgs.dix) src;
+
+        rustFmtExtraArgs = "--config-path ${./.rustfmt.toml}";
+      };
+
+      dix-toml-fmt = pkgs.crane.taploFmt {
+        src = lib.sources.sourceFilesBySuffices pkgs.dix.src [ ".toml" ];
+
+        taploExtraArgs = "--config ${./.taplo.toml}";
+      };
+
+      dix-audit = pkgs.crane.cargoAudit {
+        inherit (inputs) advisory-db;
+        inherit (pkgs.dix) src;
+      };
+
+      dix-deny = pkgs.crane.cargoDeny {
+        inherit (pkgs.dix) src;
+
+        cargoDenyChecks = "bans licenses sources --config ${./.deny.toml}";
       };
     });
   };

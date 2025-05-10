@@ -1,0 +1,44 @@
+name: Nix CI
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  check:
+    name: Nix CI (${{ matrix.system }})
+    runs-on: ${{ matrix.runner_label }}
+
+    permissions:
+      id-token: "write"
+      contents: "read"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner_label: ubuntu-latest
+          - system: x86_64-darwin
+            runner_label: macos-13
+          - system: aarch64-darwin
+            runner_label: macos-14
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      # - name: Set Up Cachix
+      #   uses: cachix/cachix-action@v14
+      #   with:
+      #     name: dix
+      #     authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Lint Nix Flake
+        uses: DeterminateSystems/flake-checker-action@main
+
+      - name: Run `nix flake check`
+        run: nix flake check

@@ -186,6 +186,7 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
       last_version = Some((last_version_value, count + 1));
     } else {
       deduplicated_push(last_version_value, count);
+      last_version = Some((version.clone(), 1));
     }
   }
 
@@ -426,30 +427,40 @@ fn write_packages_diffln<'a>(
               },
 
               EitherOrBoth::Both(old_comp, new_comp) => {
-                if let Err(ignored) = old_comp {
-                  write!(oldacc, "{ignored}")?;
-                }
+                match (old_comp, new_comp) {
+                  (Ok(old_comp), Ok(new_comp)) => {
+                    for char in diff::chars(*old_comp, *new_comp) {
+                      match char {
+                        diff::Result::Left(old_part) => {
+                          write!(oldacc, "{old}", old = old_part.red())?;
+                        },
+                        diff::Result::Right(new_part) => {
+                          write!(newacc, "{new}", new = new_part.green())?;
+                        },
 
-                if let Err(ignored) = new_comp {
-                  write!(newacc, "{ignored}")?;
-                }
-
-                if let (Ok(old_comp), Ok(new_comp)) = (old_comp, new_comp) {
-                  for char in diff::chars(*old_comp, *new_comp) {
-                    match char {
-                      diff::Result::Left(old_part) => {
-                        write!(oldacc, "{old}", old = old_part.red())?;
-                      },
-                      diff::Result::Right(new_part) => {
-                        write!(newacc, "{new}", new = new_part.green())?;
-                      },
-
-                      diff::Result::Both(old_part, new_part) => {
-                        write!(oldacc, "{old}", old = old_part.yellow())?;
-                        write!(newacc, "{new}", new = new_part.yellow())?;
-                      },
+                        diff::Result::Both(old_part, new_part) => {
+                          write!(oldacc, "{old}", old = old_part.yellow())?;
+                          write!(newacc, "{new}", new = new_part.yellow())?;
+                        },
+                      }
                     }
-                  }
+                  },
+
+                  (old_comp, new_comp) => {
+                    match old_comp {
+                      Ok(old_comp) => {
+                        write!(oldacc, "{old}", old = old_comp.yellow())?;
+                      },
+                      Err(old_comp) => write!(oldacc, "{old_comp}")?,
+                    }
+
+                    match new_comp {
+                      Ok(new_comp) => {
+                        write!(newacc, "{new}", new = new_comp.yellow())?;
+                      },
+                      Err(new_comp) => write!(newacc, "{new_comp}")?,
+                    }
+                  },
                 }
               },
             }

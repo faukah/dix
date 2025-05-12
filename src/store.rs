@@ -51,8 +51,9 @@ pub fn connect() -> Result<Connection> {
   // when it was first run for a long time!).
   //
   // The file pages of the store can be evicted from main memory
-  // using `dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync
-  // count=0` if you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
+  // using
+  // `dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0`
+  // if you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
   //
   // Documentation about the settings can be found here: <https://www.sqlite.org/pragma.html>
   //

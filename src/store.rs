@@ -57,7 +57,7 @@ pub fn connect() -> Result<Connection> {
   // Documentation about the settings can be found here: <https://www.sqlite.org/pragma.html>
   //
   // [0]: 256MB, enough to fit the whole DB (at least on my system - Dragyx).
-  // [1]: Always store temporary tables ain memory.
+  // [1]: Always store temporary tables in memory.
   inner
     .execute_batch(
       "
@@ -117,6 +117,45 @@ impl Connection {
       .query_row([path], |row| Ok(Size::from_bytes(row.get::<_, i64>(0)?)))?;
 
     Ok(closure_size)
+  }
+  /// tries to get all packages that are directly included in the system
+  /// 
+  /// will not work on non-system derivation
+  pub fn query_packages(
+    &self,
+    system: &Path
+  ) -> Result<Vec<(DerivationId, StorePath)>> {
+    const QUERY: &str = "
+      WITH systemderiv AS (
+              SELECT id FROM ValidPaths
+              WHERE path = ?
+          ),
+          systempath AS (
+              SELECT reference as id FROM systemderiv sd
+              JOIN Refs ON sd.id = referrer
+              JOIN ValidPaths vp ON reference = vp.id
+              WHERE (vp.path LIKE '%-system-path')
+          ),
+          pkgs AS (
+              SELECT reference as id FROM Refs
+              JOIN systempath ON referrer = id
+          )
+      SELECT pkgs.id, path FROM pkgs
+      JOIN ValidPaths vp ON vp.id = pkgs.id;";
+
+    let path = path_to_canonical_string(system)?;
+
+    let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
+      .prepare_cached(QUERY)?
+      .query_map([path], |row| {
+        Ok((
+          DerivationId(row.get(0)?),
+          StorePath(row.get::<_, String>(1)?.into()),
+        ))
+      })?
+      .collect();
+
+    Ok(packages?)
   }
 
   /// Gathers all derivations that the given profile path depends on.

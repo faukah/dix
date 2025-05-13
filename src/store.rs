@@ -52,7 +52,9 @@ pub fn connect() -> Result<Connection> {
   //
   // The file pages of the store can be evicted from main memory
   // using
-  // `dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0`
+  // ```bash
+  // dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0
+  // ```
   // if you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
   //
   // Documentation about the settings can be found here: <https://www.sqlite.org/pragma.html>
@@ -120,11 +122,11 @@ impl Connection {
     Ok(closure_size)
   }
   /// tries to get all packages that are directly included in the system
-  /// 
+  ///
   /// will not work on non-system derivation
   pub fn query_packages(
     &self,
-    system: &Path
+    system: &Path,
   ) -> Result<Vec<(DerivationId, StorePath)>> {
     const QUERY: &str = "
       WITH systemderiv AS (

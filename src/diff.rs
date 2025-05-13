@@ -1,6 +1,9 @@
 use std::{
   cmp,
-  collections::{HashMap, HashSet},
+  collections::{
+    HashMap,
+    HashSet,
+  },
   fmt::{
     self,
     Write as _,
@@ -85,7 +88,7 @@ impl PartialOrd for DiffStatus {
 }
 
 /// documents if the derivation is a system package and if
-/// it was added / removed as such 
+/// it was added / removed as such
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PkgSelectionStatus {
   /// the package is a system package, status unchanged
@@ -95,24 +98,28 @@ enum PkgSelectionStatus {
   /// the package was not a system package before but is now
   NewlySelected,
   /// the package was a system package before but is not anymore
-  NewlyUnselected
+  NewlyUnselected,
 }
 
 impl PkgSelectionStatus {
-  fn from_pkgs_name(name: &str, before: &HashSet<&str>, after: &HashSet<&str>) -> Self {
+  fn from_pkgs_name(
+    name: &str,
+    before: &HashSet<&str>,
+    after: &HashSet<&str>,
+  ) -> Self {
     match (before.contains(name), after.contains(name)) {
-        (true, true) => Self::Selected,
-        (true, false) => Self::NewlyUnselected,
-        (false, true) => Self::NewlySelected,
-        (false, false) => Self::Unselected,
+      (true, true) => Self::Selected,
+      (true, false) => Self::NewlyUnselected,
+      (false, true) => Self::NewlySelected,
+      (false, false) => Self::Unselected,
     }
   }
   fn char(self) -> impl fmt::Display {
     match self {
-        Self::Selected => '*',
-        Self::Unselected => '.',
-        Self::NewlySelected => '+',
-        Self::NewlyUnselected => '-',
+      Self::Selected => '*',
+      Self::Unselected => '.',
+      Self::NewlySelected => '+',
+      Self::NewlyUnselected => '-',
     }
   }
 }
@@ -150,18 +157,20 @@ pub fn write_paths_diffln(
     )
   })?;
 
-  let system_pkgs_old = connection.query_packages(path_old).with_context(|| {
-    format!(
-      "failed to query system packages of path '{path}",
-      path = path_old.display()
-    )
-  })?;
-  let system_pkgs_new = connection.query_packages(path_new).with_context(|| {
-    format!(
-      "failed to query system packages of path '{path}",
-      path = path_old.display()
-    )
-  })?;
+  let system_pkgs_old =
+    connection.query_packages(path_old).with_context(|| {
+      format!(
+        "failed to query system packages of path '{path}",
+        path = path_old.display()
+      )
+    })?;
+  let system_pkgs_new =
+    connection.query_packages(path_new).with_context(|| {
+      format!(
+        "failed to query system packages of path '{path}",
+        path = path_old.display()
+      )
+    })?;
 
   log::info!(
     "found {count} packages in new closure",
@@ -253,29 +262,35 @@ fn write_packages_diffln<'a>(
   paths_old: impl Iterator<Item = &'a StorePath>,
   paths_new: impl Iterator<Item = &'a StorePath>,
   system_paths_old: impl Iterator<Item = &'a StorePath>,
-  system_paths_new: impl Iterator<Item = &'a StorePath>
+  system_paths_new: impl Iterator<Item = &'a StorePath>,
 ) -> Result<usize, fmt::Error> {
   let mut paths = HashMap::<&str, Diff<Vec<Version>>>::new();
 
   // collect the names of old and new system packages
   let system_pkgs_old: HashSet<&str> = system_paths_old
-    .map(| path| path.parse_name_and_version())
-    .filter_map(| res | match res {
+    .map(|path| path.parse_name_and_version())
+    .filter_map(|res| {
+      match res {
         Ok((name, _)) => Some(name),
         Err(error) => {
           log::warn!("error parsing old system path name and version: {error}");
           None
-        }
-    }).collect();
+        },
+      }
+    })
+    .collect();
   let system_pkgs_new: HashSet<&str> = system_paths_new
-    .map(| path| path.parse_name_and_version())
-    .filter_map(| res | match res {
+    .map(|path| path.parse_name_and_version())
+    .filter_map(|res| {
+      match res {
         Ok((name, _)) => Some(name),
         Err(error) => {
           log::warn!("error parsing new system path name and version: {error}");
           None
-        }
-    }).collect();
+        },
+      }
+    })
+    .collect();
 
   for path in paths_old {
     match path.parse_name_and_version() {
@@ -359,7 +374,11 @@ fn write_packages_diffln<'a>(
         },
       };
 
-      let selection = PkgSelectionStatus::from_pkgs_name(name, &system_pkgs_old, &system_pkgs_new);
+      let selection = PkgSelectionStatus::from_pkgs_name(
+        name,
+        &system_pkgs_old,
+        &system_pkgs_new,
+      );
 
       Some((name, versions, status, selection))
     })
@@ -390,7 +409,6 @@ fn write_packages_diffln<'a>(
     } else {
       status
     };
-
 
     if last_status != Some(merged_status) {
       writeln!(

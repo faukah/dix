@@ -1,6 +1,6 @@
 use std::{
   cmp,
-  collections::HashMap,
+  collections::{HashMap, HashSet},
   fmt::{
     self,
     Write as _,
@@ -13,7 +13,7 @@ use std::{
 };
 
 use anyhow::{
-  Context as _,
+  Context,
   Error,
   Result,
 };
@@ -84,6 +84,39 @@ impl PartialOrd for DiffStatus {
   }
 }
 
+/// documents if the derivation is a system package and if
+/// it was added / removed as such 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PkgSelectionStatus {
+  /// the package is a system package, status unchanged
+  Selected,
+  /// the package is and was a dependency
+  Unselected,
+  /// the package was not a system package before but is now
+  NewlySelected,
+  /// the package was a system package before but is not anymore
+  NewlyUnselected
+}
+
+impl PkgSelectionStatus {
+  fn from_pkgs_name(name: &str, before: &HashSet<&str>, after: &HashSet<&str>) -> Self {
+    match (before.contains(name), after.contains(name)) {
+        (true, true) => Self::Selected,
+        (true, false) => Self::NewlyUnselected,
+        (false, true) => Self::NewlySelected,
+        (false, false) => Self::Unselected,
+    }
+  }
+  fn char(self) -> impl fmt::Display {
+    match self {
+        Self::Selected => '*',
+        Self::Unselected => '.',
+        Self::NewlySelected => '+',
+        Self::NewlyUnselected => '-',
+    }
+  }
+}
+
 /// Writes the diff header (<<< out, >>>in) and package diff.
 ///
 /// # Returns
@@ -116,6 +149,20 @@ pub fn write_paths_diffln(
       path = path_new.display()
     )
   })?;
+
+  let system_pkgs_old = connection.query_packages(path_old).with_context(|| {
+    format!(
+      "failed to query system packages of path '{path}",
+      path = path_old.display()
+    )
+  })?;
+  let system_pkgs_new = connection.query_packages(path_new).with_context(|| {
+    format!(
+      "failed to query system packages of path '{path}",
+      path = path_old.display()
+    )
+  })?;
+
   log::info!(
     "found {count} packages in new closure",
     count = paths_new.len(),
@@ -143,6 +190,8 @@ pub fn write_paths_diffln(
     writer,
     paths_old.iter().map(|(_, path)| path),
     paths_new.iter().map(|(_, path)| path),
+    system_pkgs_old.iter().map(|(_, path)| path),
+    system_pkgs_new.iter().map(|(_, path)| path),
   )?)
 }
 
@@ -203,8 +252,30 @@ fn write_packages_diffln<'a>(
   writer: &mut impl fmt::Write,
   paths_old: impl Iterator<Item = &'a StorePath>,
   paths_new: impl Iterator<Item = &'a StorePath>,
+  system_paths_old: impl Iterator<Item = &'a StorePath>,
+  system_paths_new: impl Iterator<Item = &'a StorePath>
 ) -> Result<usize, fmt::Error> {
   let mut paths = HashMap::<&str, Diff<Vec<Version>>>::new();
+
+  // collect the names of old and new system packages
+  let system_pkgs_old: HashSet<&str> = system_paths_old
+    .map(| path| path.parse_name_and_version())
+    .filter_map(| res | match res {
+        Ok((name, _)) => Some(name),
+        Err(error) => {
+          log::warn!("error parsing old system path name and version: {error}");
+          None
+        }
+    }).collect();
+  let system_pkgs_new: HashSet<&str> = system_paths_new
+    .map(| path| path.parse_name_and_version())
+    .filter_map(| res | match res {
+        Ok((name, _)) => Some(name),
+        Err(error) => {
+          log::warn!("error parsing new system path name and version: {error}");
+          None
+        }
+    }).collect();
 
   for path in paths_old {
     match path.parse_name_and_version() {
@@ -288,11 +359,13 @@ fn write_packages_diffln<'a>(
         },
       };
 
-      Some((name, versions, status))
+      let selection = PkgSelectionStatus::from_pkgs_name(name, &system_pkgs_old, &system_pkgs_new);
+
+      Some((name, versions, status, selection))
     })
     .collect::<Vec<_>>();
 
-  diffs.sort_by(|&(a_name, _, a_status), &(b_name, _, b_status)| {
+  diffs.sort_by(|&(a_name, _, a_status, _), &(b_name, _, b_status, _)| {
     a_status.cmp(&b_status).then_with(|| a_name.cmp(b_name))
   });
 
@@ -304,7 +377,7 @@ fn write_packages_diffln<'a>(
 
   let mut last_status = None::<DiffStatus>;
 
-  for &(name, ref versions, status) in &diffs {
+  for &(name, ref versions, status, selection) in &diffs {
     use DiffStatus::{
       Added,
       Changed,
@@ -317,6 +390,7 @@ fn write_packages_diffln<'a>(
     } else {
       status
     };
+
 
     if last_status != Some(merged_status) {
       writeln!(
@@ -337,8 +411,9 @@ fn write_packages_diffln<'a>(
 
     write!(
       writer,
-      "[{status}] {name:<name_width$}",
-      status = status.char()
+      "[{status}{sel}] {name:<name_width$}",
+      status = status.char(),
+      sel = selection.char()
     )?;
 
     let mut oldacc = String::new();

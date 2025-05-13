@@ -63,7 +63,6 @@ fn real_main() -> Result<()> {
   let mut out = WriteFmt(io::stdout());
 
   // Handle to the thread collecting closure size information.
-  // We do this as early as possible because Nix is slow.
   let closure_size_handle =
     dix::spawn_size_diff(old_path.clone(), new_path.clone());
 

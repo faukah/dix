@@ -16,7 +16,7 @@ use std::{
 };
 
 use anyhow::{
-  Context,
+  Context as _,
   Error,
   Result,
 };
@@ -26,7 +26,10 @@ use itertools::{
 };
 use size::Size;
 use unicode_width::UnicodeWidthStr as _;
-use yansi::Paint as _;
+use yansi::{
+  Paint as _,
+  Painted,
+};
 
 use crate::{
   StorePath,
@@ -404,6 +407,10 @@ fn write_packages_diffln<'a>(
       Removed,
       Upgraded,
     };
+    use PkgSelectionStatus::{
+      NewlySelected,
+      Selected,
+    };
     let merged_status = if let Downgraded | Upgraded = status {
       Changed
     } else {
@@ -427,9 +434,14 @@ fn write_packages_diffln<'a>(
       last_status = Some(merged_status);
     }
 
+    let name_colored = match selection {
+      Selected | NewlySelected => name.bold(),
+      _ => Painted::new(name),
+    };
+
     write!(
       writer,
-      "[{status}{sel}] {name:<name_width$}",
+      "[{status}{sel}] {name_colored:<name_width$}",
       status = status.char(),
       sel = selection.char()
     )?;

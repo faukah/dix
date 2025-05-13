@@ -1,9 +1,11 @@
 # Diff Nix
 
-A tool to diff any Nix related thing.
+A blazingly fast tool to diff Nix related things.
 
 Currently only supports closures (a derivation graph, such as a system build or
 package).
+
+![output of `dix /nix/var/nix/profiles/system-69-link/ /run/current-system`](.github/dix.png)
 
 ## Usage
 
@@ -27,22 +29,27 @@ Options:
 $ dix /nix/var/profiles/system-69-link /run/current-system
 ```
 
-## Output
+## Contributing
 
-![output of `dix /nix/var/nix/profiles/system-69-link/ /run/current-system`](.github/dix.png)
+If you have any problems, feature requests or want to contribute code or want to
+provide input in some other way, feel free to create an issue or a pull request!
+
+## Thanks
+
+Huge thanks to [nvd](https://git.sr.ht/~khumba/nvd) for the original idea! Dix
+is heavily inspired by this and basically just a "Rewrite it in Rust" version of
+nvd, with a few things like version diffing done better.
+
+Furthermore, many thanks to the amazing people who made this projects possible
+by contributing code and offering advice:
+
+- [@RGBCube](https://github.com/RGBCube) - Giving the codebase a deep scrub.
+- [@Dragyx](https://github.com/Dragyx) - Cool SQL queries. Much of dix's speed
+  is thanks to him.
+- [@NotAShelf](https://github.com/NotAShelf) - Implementing proper error
+  handling.
 
 ## License
 
-Dix: Diff Nix Copyright (C) 2025-present bloxx12
-
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version.
-
-This program is distributed in the hope that it will be useful, but WITHOUT ANY
-WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-PARTICULAR PURPOSE. See the GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License along with
-this program. If not, see <https://www.gnu.org/licenses/>.
+Dix is licensed under [GPLv3](LICENSE.md). See the license file for more
+details.

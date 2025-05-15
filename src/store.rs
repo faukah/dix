@@ -51,11 +51,13 @@ pub fn connect() -> Result<Connection> {
   // when it was first run for a long time!).
   //
   // The file pages of the store can be evicted from main memory
-  // using
+  // using:
+  //
   // ```bash
   // dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0
   // ```
-  // if you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
+  //
+  // If you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
   //
   // Documentation about the settings can be found here: <https://www.sqlite.org/pragma.html>
   //
@@ -121,30 +123,33 @@ impl Connection {
 
     Ok(closure_size)
   }
-  /// tries to get all packages that are directly included in the system
+
+  /// Gets the derivations that are directly included in the system derivation.
   ///
-  /// will not work on non-system derivation
-  pub fn query_packages(
+  /// Will not work on non-system derivations.
+  pub fn query_system_derivations(
     &self,
     system: &Path,
   ) -> Result<Vec<(DerivationId, StorePath)>> {
     const QUERY: &str = "
-      WITH systemderiv AS (
-              SELECT id FROM ValidPaths
-              WHERE path = ?
-          ),
-          systempath AS (
-              SELECT reference as id FROM systemderiv sd
-              JOIN Refs ON sd.id = referrer
-              JOIN ValidPaths vp ON reference = vp.id
-              WHERE (vp.path LIKE '%-system-path')
-          ),
-          pkgs AS (
-              SELECT reference as id FROM Refs
-              JOIN systempath ON referrer = id
-          )
+      WITH
+        systemderiv AS (
+          SELECT id FROM ValidPaths
+          WHERE path = ?
+        ),
+        systempath AS (
+          SELECT reference as id FROM systemderiv sd
+          JOIN Refs ON sd.id = referrer
+          JOIN ValidPaths vp ON reference = vp.id
+          WHERE (vp.path LIKE '%-system-path')
+        ),
+        pkgs AS (
+            SELECT reference as id FROM Refs
+            JOIN systempath ON referrer = id
+        )
       SELECT pkgs.id, path FROM pkgs
-      JOIN ValidPaths vp ON vp.id = pkgs.id;";
+      JOIN ValidPaths vp ON vp.id = pkgs.id;
+    ";
 
     let path = path_to_canonical_string(system)?;
 

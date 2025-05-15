@@ -3,7 +3,7 @@
 
   nixConfig = {
     extra-substituters = [
-      "https://dix.cachix.io/"
+      "https://dix.cachix.org/"
     ];
 
     extra-trusted-public-keys = [

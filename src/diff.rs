@@ -53,33 +53,13 @@ enum DiffStatus {
 }
 
 impl DiffStatus {
-  fn char(self) -> impl fmt::Display {
+  fn char(self) -> Painted<&'static char> {
     match self {
-      Self::Changed => "C".yellow().bold(),
-      Self::Upgraded => "U".bright_cyan().bold(),
-      Self::Downgraded => "D".magenta().bold(),
-      Self::Added => "A".green().bold(),
-      Self::Removed => "R".red().bold(),
-    }
-  }
-}
-impl cmp::Ord for DiffStatus {
-  fn cmp(&self, other: &Self) -> cmp::Ordering {
-    use DiffStatus::{
-      Added,
-      Changed,
-      Downgraded,
-      Removed,
-      Upgraded,
-    };
-    #[expect(clippy::match_same_arms)]
-    match (*self, *other) {
-      // Changeds get displayed earlier than adds or removes.
-      (Changed | Upgraded | Downgraded, Removed | Added) => cmp::Ordering::Less,
-      // adds get displayed before removes
-      (Added, Removed) => cmp::Ordering::Less,
-      (Removed | Added, _) => cmp::Ordering::Greater,
-      _ => cmp::Ordering::Equal,
+      Self::Changed => 'C'.yellow().bold(),
+      Self::Upgraded => 'U'.bright_cyan().bold(),
+      Self::Downgraded => 'D'.magenta().bold(),
+      Self::Added => 'A'.green().bold(),
+      Self::Removed => 'R'.red().bold(),
     }
   }
 }
@@ -90,39 +70,60 @@ impl PartialOrd for DiffStatus {
   }
 }
 
-/// documents if the derivation is a system package and if
-/// it was added / removed as such
+impl cmp::Ord for DiffStatus {
+  fn cmp(&self, other: &Self) -> cmp::Ordering {
+    use DiffStatus::{
+      Added,
+      Changed,
+      Downgraded,
+      Removed,
+      Upgraded,
+    };
+
+    #[expect(clippy::match_same_arms)]
+    match (*self, *other) {
+      // `Changed` gets displayed earlier than `Added` and `Removed`.
+      (Changed | Upgraded | Downgraded, Removed | Added) => cmp::Ordering::Less,
+
+      // `Added` gets displayed before `Removed`.
+      (Added, Removed) => cmp::Ordering::Less,
+      (Removed | Added, _) => cmp::Ordering::Greater,
+
+      _ => cmp::Ordering::Equal,
+    }
+  }
+}
+
+/// Documents if the derivation is a system package and if
+/// it was added / removed as such.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PkgSelectionStatus {
-  /// the package is a system package, status unchanged
+enum DerivationSelectionStatus {
+  /// The derivation is a system package, status unchanged.
   Selected,
-  /// the package is and was a dependency
-  Unselected,
-  /// the package was not a system package before but is now
+  /// The derivation was not a system package before but is now.
   NewlySelected,
-  /// the package was a system package before but is not anymore
+  /// The derivation is and was a dependency.
+  Unselected,
+  /// The derivation was a system package before but is not anymore.
   NewlyUnselected,
 }
 
-impl PkgSelectionStatus {
-  fn from_pkgs_name(
-    name: &str,
-    before: &HashSet<&str>,
-    after: &HashSet<&str>,
-  ) -> Self {
-    match (before.contains(name), after.contains(name)) {
+impl DerivationSelectionStatus {
+  fn from_names(name: &str, old: &HashSet<&str>, new: &HashSet<&str>) -> Self {
+    match (old.contains(name), new.contains(name)) {
       (true, true) => Self::Selected,
       (true, false) => Self::NewlyUnselected,
       (false, true) => Self::NewlySelected,
       (false, false) => Self::Unselected,
     }
   }
-  fn char(self) -> impl fmt::Display {
+
+  fn char(self) -> Painted<&'static char> {
     match self {
-      Self::Selected => '*',
-      Self::Unselected => '.',
-      Self::NewlySelected => '+',
-      Self::NewlyUnselected => '-',
+      Self::Selected => '*'.bold(),
+      Self::NewlySelected => '+'.bold(),
+      Self::Unselected => Painted::new(&'.'),
+      Self::NewlyUnselected => Painted::new(&'-'),
     }
   }
 }
@@ -147,9 +148,8 @@ pub fn write_paths_diffln(
       path = path_old.display()
     )
   })?;
-
   log::info!(
-    "found {count} packages in old closure",
+    "found {count} paths in old closure",
     count = paths_old.len(),
   );
 
@@ -159,26 +159,28 @@ pub fn write_paths_diffln(
       path = path_new.display()
     )
   })?;
-
-  let system_pkgs_old =
-    connection.query_packages(path_old).with_context(|| {
-      format!(
-        "failed to query system packages of path '{path}",
-        path = path_old.display()
-      )
-    })?;
-  let system_pkgs_new =
-    connection.query_packages(path_new).with_context(|| {
-      format!(
-        "failed to query system packages of path '{path}",
-        path = path_old.display()
-      )
-    })?;
-
   log::info!(
-    "found {count} packages in new closure",
+    "found {count} paths in new closure",
     count = paths_new.len(),
   );
+
+  let system_derivations_old = connection
+    .query_system_derivations(path_old)
+    .with_context(|| {
+      format!(
+        "failed to query system derivations of path '{path}",
+        path = path_old.display()
+      )
+    })?;
+
+  let system_derivations_new = connection
+    .query_system_derivations(path_new)
+    .with_context(|| {
+      format!(
+        "failed to query system derivations of path '{path}",
+        path = path_old.display()
+      )
+    })?;
 
   drop(connection);
 
@@ -202,8 +204,8 @@ pub fn write_paths_diffln(
     writer,
     paths_old.iter().map(|(_, path)| path),
     paths_new.iter().map(|(_, path)| path),
-    system_pkgs_old.iter().map(|(_, path)| path),
-    system_pkgs_new.iter().map(|(_, path)| path),
+    system_derivations_old.iter().map(|(_, path)| path),
+    system_derivations_new.iter().map(|(_, path)| path),
   )?)
 }
 
@@ -269,8 +271,7 @@ fn write_packages_diffln<'a>(
 ) -> Result<usize, fmt::Error> {
   let mut paths = HashMap::<&str, Diff<Vec<Version>>>::new();
 
-  // collect the names of old and new system packages
-  let system_pkgs_old: HashSet<&str> = system_paths_old
+  let system_derivations_old: HashSet<&str> = system_paths_old
     .map(|path| path.parse_name_and_version())
     .filter_map(|res| {
       match res {
@@ -282,7 +283,8 @@ fn write_packages_diffln<'a>(
       }
     })
     .collect();
-  let system_pkgs_new: HashSet<&str> = system_paths_new
+
+  let system_derivations_new: HashSet<&str> = system_paths_new
     .map(|path| path.parse_name_and_version())
     .filter_map(|res| {
       match res {
@@ -377,10 +379,10 @@ fn write_packages_diffln<'a>(
         },
       };
 
-      let selection = PkgSelectionStatus::from_pkgs_name(
+      let selection = DerivationSelectionStatus::from_names(
         name,
-        &system_pkgs_old,
-        &system_pkgs_new,
+        &system_derivations_old,
+        &system_derivations_new,
       );
 
       Some((name, versions, status, selection))
@@ -407,10 +409,7 @@ fn write_packages_diffln<'a>(
       Removed,
       Upgraded,
     };
-    use PkgSelectionStatus::{
-      NewlySelected,
-      Selected,
-    };
+
     let merged_status = if let Downgraded | Upgraded = status {
       Changed
     } else {
@@ -434,17 +433,11 @@ fn write_packages_diffln<'a>(
       last_status = Some(merged_status);
     }
 
-    let name_colored = match selection {
-      Selected | NewlySelected => name.bold(),
-      _ => Painted::new(name),
-    };
+    let status = status.char();
+    let selection = selection.char();
+    let name = name.paint(selection.style);
 
-    write!(
-      writer,
-      "[{status}{sel}] {name_colored:<name_width$}",
-      status = status.char(),
-      sel = selection.char()
-    )?;
+    write!(writer, "[{status}{selection}] {name:<name_width$}")?;
 
     let mut oldacc = String::new();
     let mut oldwrote = false;

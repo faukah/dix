@@ -10,8 +10,8 @@ jobs:
     runs-on: ${{ matrix.runner_label }}
 
     permissions:
-      id-token: "write"
-      contents: "read"
+      id-token: write
+      contents: read
 
     strategy:
       fail-fast: false
@@ -30,12 +30,15 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+          extra-conf: lazy-trees = true
 
-      # - name: Set Up Cachix
-      #   uses: cachix/cachix-action@v14
-      #   with:
-      #     name: dix
-      #     authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - name: Set Up Cachix
+        uses: cachix/cachix-action@v14
+        with:
+          name: dix
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Lint Nix Flake
         uses: DeterminateSystems/flake-checker-action@main

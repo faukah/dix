@@ -24,6 +24,11 @@ pub struct Connection(rusqlite::Connection);
 /// Connects to the Nix database
 ///
 /// and sets some basic settings
+///
+/// # Errors
+///
+/// Returns an error if the functions fails to connect to the database located
+/// at `/nix/var/nix/db/db.sqlite`.
 pub fn connect() -> Result<Connection> {
   const DATABASE_PATH: &str = "/nix/var/nix/db/db.sqlite";
 
@@ -100,6 +105,7 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 impl Connection {
   /// Gets the total closure size of the given store path by summing up the nar
   /// size of all dependent derivations.
+  #[expect(clippy::missing_errors_doc)]
   pub fn query_closure_size(&self, path: &Path) -> Result<Size> {
     const QUERY: &str = "
       WITH RECURSIVE
@@ -127,6 +133,7 @@ impl Connection {
   /// Gets the derivations that are directly included in the system derivation.
   ///
   /// Will not work on non-system derivations.
+  #[expect(clippy::missing_errors_doc)]
   pub fn query_system_derivations(
     &self,
     system: &Path,
@@ -153,7 +160,7 @@ impl Connection {
 
     let path = path_to_canonical_string(system)?;
 
-    let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
+    let derivations: result::Result<Vec<(DerivationId, StorePath)>, _> = self
       .prepare_cached(QUERY)?
       .query_map([path], |row| {
         Ok((
@@ -163,10 +170,11 @@ impl Connection {
       })?
       .collect();
 
-    Ok(packages?)
+    Ok(derivations?)
   }
 
   /// Gathers all derivations that the given profile path depends on.
+  #[expect(clippy::missing_errors_doc)]
   pub fn query_dependents(
     &self,
     path: &Path,
@@ -187,7 +195,7 @@ impl Connection {
 
     let path = path_to_canonical_string(path)?;
 
-    let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
+    let derivations: result::Result<Vec<(DerivationId, StorePath)>, _> = self
       .prepare_cached(QUERY)?
       .query_map([path], |row| {
         Ok((
@@ -197,7 +205,7 @@ impl Connection {
       })?
       .collect();
 
-    Ok(packages?)
+    Ok(derivations?)
   }
 
   /// Gathers the complete dependency graph of of the store path as an adjacency
@@ -206,7 +214,7 @@ impl Connection {
   /// We might want to collect the paths in the graph directly as
   /// well in the future, depending on how much we use them
   /// in the operations on the graph.
-  #[expect(dead_code)]
+  #[expect(clippy::missing_errors_doc)]
   pub fn query_dependency_graph(
     &self,
     path: &StorePath,

@@ -19,13 +19,13 @@ pub use diff::{
   write_size_diffln,
 };
 
-mod store;
+pub mod store;
 
 mod version;
 use version::Version;
 
 #[derive(Deref, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct DerivationId(i64);
+pub struct DerivationId(i64);
 
 /// A validated store path. Always starts with `/nix/store`.
 ///

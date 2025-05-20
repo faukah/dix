@@ -6,7 +6,6 @@ use std::{
     Iterator,
     Peekable,
   },
-  marker::PhantomData,
   path::Path,
 };
 
@@ -40,11 +39,10 @@ where
   T: 'static,
   F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
 {
-  stmt:   CachedStatement<'conn>,
-  with_m: PhantomData<F>,
+  stmt:  CachedStatement<'conn>,
   #[borrows(mut stmt)]
   #[not_covariant]
-  inner:  FilterMap<Peekable<MappedRows<'this, F>>, FilterOkFunc<T>>,
+  inner: FilterMap<Peekable<MappedRows<'this, F>>, FilterOkFunc<T>>,
 }
 
 pub struct QueryIterator<'conn, T, F>
@@ -64,7 +62,7 @@ where
     params: P,
     map: F,
   ) -> Result<Self> {
-    let cell_res = QueryIteratorCell::try_new(stmt, PhantomData, |stmt| {
+    let cell_res = QueryIteratorCell::try_new(stmt, |stmt| {
       let inner_iter = stmt
         .query_map(params, map)
         .map(Iterator::peekable)

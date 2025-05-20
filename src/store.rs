@@ -82,6 +82,13 @@ impl<'conn, T> QueryIterator<'conn, T> {
   }
 }
 
+impl<T: 'static> Iterator for QueryIterator<'_, T> {
+  type Item = T;
+  fn next(&mut self) -> Option<Self::Item> {
+    self.cell.with_inner_mut(|inner| inner.next())
+  }
+}
+
 /// Connects to the Nix database
 ///
 /// and sets some basic settings
@@ -188,7 +195,7 @@ impl Connection {
   pub fn query_packages(
     &self,
     system: &Path,
-  ) -> Result<Vec<(DerivationId, StorePath)>> {
+  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>> {
     const QUERY: &str = "
       WITH systemderiv AS (
               SELECT id FROM ValidPaths
@@ -209,17 +216,19 @@ impl Connection {
 
     let path = path_to_canonical_string(system)?;
 
-    let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
-      .prepare_cached(QUERY)?
-      .query_map([path], |row| {
+    let stmt = self.prepare_cached(QUERY)?;
+
+    let pkg_iter = QueryIterator::try_new(
+      stmt,
+      |row| {
         Ok((
           DerivationId(row.get(0)?),
           StorePath(row.get::<_, String>(1)?.into()),
         ))
-      })?
-      .collect();
-
-    Ok(packages?)
+      },
+      [path],
+    )?;
+    Ok(pkg_iter)
   }
 
   /// Gathers all derivations that the given profile path depends on.

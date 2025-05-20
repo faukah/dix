@@ -160,20 +160,24 @@ pub fn write_paths_diffln(
     )
   })?;
 
-  let system_pkgs_old =
-    connection.query_packages(path_old).with_context(|| {
+  let system_pkgs_old: Vec<_> = connection
+    .query_packages(path_old)
+    .with_context(|| {
       format!(
         "failed to query system packages of path '{path}",
         path = path_old.display()
       )
-    })?;
-  let system_pkgs_new =
-    connection.query_packages(path_new).with_context(|| {
+    })?
+    .collect();
+  let system_pkgs_new: Vec<_> = connection
+    .query_packages(path_new)
+    .with_context(|| {
       format!(
         "failed to query system packages of path '{path}",
         path = path_old.display()
       )
-    })?;
+    })?
+    .collect();
 
   log::info!(
     "found {count} packages in new closure",

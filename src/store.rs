@@ -1,3 +1,5 @@
+#![allow(clippy::mem_forget)]
+
 use std::{
   iter::{
     FilterMap,
@@ -70,14 +72,15 @@ where
 
       match inner_iter {
         Ok(mut iter) => {
-          if let Some(Err(e)) = iter.peek() {
-            return Err(anyhow!("First row conversion failed: {e:?}"));
+          #[expect(clippy::pattern_type_mismatch)]
+          if let Some(Err(err)) = iter.peek() {
+            return Err(anyhow!("First row conversion failed: {err:?}"));
           }
           let iter_filtered = iter.filter_map(Result::ok as FilterOkFunc<T>);
 
           Ok(iter_filtered)
         },
-        Err(e) => Err(e),
+        Err(err) => Err(err),
       }
     });
     cell_res.map(|cell| Self { cell })

@@ -1,5 +1,10 @@
 use std::{
-  iter::Iterator,
+  iter::{
+    FilterMap,
+    Iterator,
+    Peekable,
+  },
+  marker::PhantomData,
   path::Path,
 };
 
@@ -9,12 +14,11 @@ use anyhow::{
   anyhow,
 };
 use derive_more::Deref;
-use itertools::Itertools;
 use ouroboros::self_referencing;
 use rusqlite::{
   CachedStatement,
+  MappedRows,
   OpenFlags,
-  Row,
 };
 use size::Size;
 
@@ -26,35 +30,39 @@ use crate::{
 #[derive(Deref)]
 pub struct Connection(rusqlite::Connection);
 
-// TODO: remove the box
+type FilterOkFunc<T> = fn(Result<T, rusqlite::Error>) -> Option<T>;
+
 #[self_referencing]
-pub struct QueryIteratorCell<'conn, T>
+struct QueryIteratorCell<'conn, T, F>
 where
   T: 'static,
+  F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
 {
-  stmt:  CachedStatement<'conn>,
+  stmt:   CachedStatement<'conn>,
+  with_m: PhantomData<F>,
   #[borrows(mut stmt)]
   #[not_covariant]
-  inner: Box<dyn Iterator<Item = T> + 'this>,
+  inner:  FilterMap<Peekable<MappedRows<'this, F>>, FilterOkFunc<T>>,
 }
 
-pub struct QueryIterator<'conn, T>
+pub struct QueryIterator<'conn, T, F>
 where
   T: 'static,
+  F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
 {
-  cell: QueryIteratorCell<'conn, T>,
+  cell: QueryIteratorCell<'conn, T, F>,
 }
 
-impl<'conn, T> QueryIterator<'conn, T> {
-  pub fn try_new<
-    P: rusqlite::Params,
-    F: Fn(&Row) -> rusqlite::Result<T> + 'conn,
-  >(
+impl<'conn, T, F> QueryIterator<'conn, T, F>
+where
+  F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
+{
+  pub fn try_new<P: rusqlite::Params>(
     stmt: CachedStatement<'conn>,
     params: P,
     map: F,
   ) -> Result<Self> {
-    let cell_res = QueryIteratorCell::try_new(stmt, |stmt| {
+    let cell_res = QueryIteratorCell::try_new(stmt, PhantomData, |stmt| {
       let inner_iter = stmt
         .query_map(params, map)
         .map(Iterator::peekable)
@@ -65,9 +73,9 @@ impl<'conn, T> QueryIterator<'conn, T> {
           if let Some(Err(e)) = iter.peek() {
             return Err(anyhow!("First row conversion failed: {e:?}"));
           }
-          let iter_filtered = iter.filter_map(Result::ok);
+          let iter_filtered = iter.filter_map(Result::ok as FilterOkFunc<T>);
 
-          Ok(Box::new(iter_filtered) as Box<dyn Iterator<Item = T>>)
+          Ok(iter_filtered)
         },
         Err(e) => Err(e),
       }
@@ -76,7 +84,10 @@ impl<'conn, T> QueryIterator<'conn, T> {
   }
 }
 
-impl<T: 'static> Iterator for QueryIterator<'_, T> {
+impl<T: 'static, F> Iterator for QueryIterator<'_, T, F>
+where
+  F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
+{
   type Item = T;
   fn next(&mut self) -> Option<Self::Item> {
     self.cell.with_inner_mut(|inner| inner.next())

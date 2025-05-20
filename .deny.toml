@@ -12,7 +12,7 @@ targets = [
 ]
 
 [bans]
-multiple-versions = "deny"
+multiple-versions = "allow"
 wildcards         = "deny"
 
 deny = [

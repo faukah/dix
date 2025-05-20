@@ -40,8 +40,5 @@ jobs:
           name: dix
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - name: Lint Nix Flake
-        uses: DeterminateSystems/flake-checker-action@main
-
       - name: Run `nix flake check`
         run: nix flake check

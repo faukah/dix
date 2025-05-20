@@ -1,5 +1,10 @@
 use std::{
+  cell::OnceCell,
   collections::HashMap,
+  iter::{
+    Iterator,
+    Peekable,
+  },
   path::Path,
   result,
 };
@@ -10,7 +15,13 @@ use anyhow::{
   anyhow,
 };
 use derive_more::Deref;
-use rusqlite::OpenFlags;
+use itertools::Itertools;
+use ouroboros::self_referencing;
+use rusqlite::{
+  CachedStatement,
+  OpenFlags,
+  Row,
+};
 use size::Size;
 
 use crate::{
@@ -20,6 +31,56 @@ use crate::{
 
 #[derive(Deref)]
 pub struct Connection(rusqlite::Connection);
+
+// TODO: remove the box
+#[self_referencing]
+pub struct QueryIteratorCell<'conn, T>
+where
+  T: 'static,
+{
+  stmt:  CachedStatement<'conn>,
+  #[borrows(mut stmt)]
+  #[not_covariant]
+  inner: Box<dyn Iterator<Item = T> + 'this>,
+}
+
+pub struct QueryIterator<'conn, T>
+where
+  T: 'static,
+{
+  cell: QueryIteratorCell<'conn, T>,
+}
+
+impl<'conn, T> QueryIterator<'conn, T> {
+  pub fn try_new<
+    P: rusqlite::Params,
+    F: Fn(&Row) -> rusqlite::Result<T> + 'conn,
+  >(
+    stmt: CachedStatement<'conn>,
+    map: F,
+    params: P,
+  ) -> Result<Self> {
+    let cell_res = QueryIteratorCell::try_new(stmt, |stmt| {
+      let inner_iter = stmt
+        .query_map(params, map)
+        .map(Iterator::peekable)
+        .with_context(|| "Unable to perform query");
+
+      match inner_iter {
+        Ok(mut iter) => {
+          if let Some(Err(e)) = iter.peek() {
+            return Err(anyhow!("First row conversion failed: {e:?}"));
+          }
+          let iter_filtered = iter.filter_map(Result::ok);
+
+          Ok(Box::new(iter_filtered) as Box<dyn Iterator<Item = T>>)
+        },
+        Err(e) => Err(e),
+      }
+    });
+    cell_res.map(|cell| Self { cell })
+  }
+}
 
 /// Connects to the Nix database
 ///

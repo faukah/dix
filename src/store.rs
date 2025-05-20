@@ -1,12 +1,6 @@
 use std::{
-  cell::OnceCell,
-  collections::HashMap,
-  iter::{
-    Iterator,
-    Peekable,
-  },
+  iter::Iterator,
   path::Path,
-  result,
 };
 
 use anyhow::{
@@ -57,8 +51,8 @@ impl<'conn, T> QueryIterator<'conn, T> {
     F: Fn(&Row) -> rusqlite::Result<T> + 'conn,
   >(
     stmt: CachedStatement<'conn>,
-    map: F,
     params: P,
+    map: F,
   ) -> Result<Self> {
     let cell_res = QueryIteratorCell::try_new(stmt, |stmt| {
       let inner_iter = stmt
@@ -218,24 +212,19 @@ impl Connection {
 
     let stmt = self.prepare_cached(QUERY)?;
 
-    let pkg_iter = QueryIterator::try_new(
-      stmt,
-      |row| {
-        Ok((
-          DerivationId(row.get(0)?),
-          StorePath(row.get::<_, String>(1)?.into()),
-        ))
-      },
-      [path],
-    )?;
-    Ok(pkg_iter)
+    QueryIterator::try_new(stmt, [path], |row| {
+      Ok((
+        DerivationId(row.get(0)?),
+        StorePath(row.get::<_, String>(1)?.into()),
+      ))
+    })
   }
 
   /// Gathers all derivations that the given profile path depends on.
   pub fn query_dependents(
     &self,
     path: &Path,
-  ) -> Result<Vec<(DerivationId, StorePath)>> {
+  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
@@ -252,30 +241,25 @@ impl Connection {
 
     let path = path_to_canonical_string(path)?;
 
-    let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
-      .prepare_cached(QUERY)?
-      .query_map([path], |row| {
-        Ok((
-          DerivationId(row.get(0)?),
-          StorePath(row.get::<_, String>(1)?.into()),
-        ))
-      })?
-      .collect();
+    let stmt = self.prepare_cached(QUERY)?;
 
-    Ok(packages?)
+    QueryIterator::try_new(stmt, [path], |row| {
+      Ok((
+        DerivationId(row.get(0)?),
+        StorePath(row.get::<_, String>(1)?.into()),
+      ))
+    })
   }
 
-  /// Gathers the complete dependency graph of of the store path as an adjacency
-  /// list.
+  /// returns all edges of the dependency graph
   ///
-  /// We might want to collect the paths in the graph directly as
-  /// well in the future, depending on how much we use them
-  /// in the operations on the graph.
+  /// you might want to build an adjacency list from the resulting
+  /// edges
   #[expect(dead_code)]
   pub fn query_dependency_graph(
     &self,
     path: &StorePath,
-  ) -> Result<HashMap<DerivationId, Vec<DerivationId>>> {
+  ) -> Result<impl Iterator<Item = (DerivationId, DerivationId)>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p, c) AS (
@@ -292,21 +276,10 @@ impl Connection {
 
     let path = path_to_canonical_string(path)?;
 
-    let mut adj = HashMap::<DerivationId, Vec<DerivationId>>::new();
+    let stmt = self.prepare_cached(QUERY)?;
 
-    let mut statement = self.prepare_cached(QUERY)?;
-
-    let edges = statement.query_map([path], |row| {
+    QueryIterator::try_new(stmt, [path], |row| {
       Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?)))
-    })?;
-
-    for row in edges {
-      let (from, to) = row?;
-
-      adj.entry(from).or_default().push(to);
-      adj.entry(to).or_default();
-    }
-
-    Ok(adj)
+    })
   }
 }

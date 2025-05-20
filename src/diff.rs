@@ -141,24 +141,30 @@ pub fn write_paths_diffln(
 ) -> Result<usize> {
   let connection = store::connect()?;
 
-  let paths_old = connection.query_dependents(path_old).with_context(|| {
-    format!(
-      "failed to query dependencies of path '{path}'",
-      path = path_old.display()
-    )
-  })?;
+  let paths_old: Vec<_> = connection
+    .query_dependents(path_old)
+    .with_context(|| {
+      format!(
+        "failed to query dependencies of path '{path}'",
+        path = path_old.display()
+      )
+    })?
+    .collect();
 
   log::info!(
     "found {count} packages in old closure",
     count = paths_old.len(),
   );
 
-  let paths_new = connection.query_dependents(path_new).with_context(|| {
-    format!(
-      "failed to query dependencies of path '{path}'",
-      path = path_new.display()
-    )
-  })?;
+  let paths_new: Vec<_> = connection
+    .query_dependents(path_new)
+    .with_context(|| {
+      format!(
+        "failed to query dependencies of path '{path}'",
+        path = path_new.display()
+      )
+    })?
+    .collect();
 
   let system_pkgs_old: Vec<_> = connection
     .query_packages(path_old)

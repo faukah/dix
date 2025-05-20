@@ -20,6 +20,7 @@ use rusqlite::{
   CachedStatement,
   MappedRows,
   OpenFlags,
+  Row,
 };
 use size::Size;
 
@@ -170,6 +171,24 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 }
 
 impl Connection {
+  /// executes a query that returns multiple rows and returns
+  /// an iterator over them where the `map` is used to map
+  /// the sql rows to `T`
+  pub fn execute_row_query_with_path<T, M>(
+    &self,
+    query: &str,
+    path: &Path,
+    map: M,
+  ) -> Result<impl Iterator<Item = T>>
+  where
+    T: 'static,
+    M: Fn(&Row) -> rusqlite::Result<T>,
+  {
+    let path = path_to_canonical_string(path)?;
+    let stmt = self.prepare_cached(query)?;
+    QueryIterator::try_new(stmt, [path], map)
+  }
+
   /// Gets the total closure size of the given store path by summing up the nar
   /// size of all dependent derivations.
   pub fn query_closure_size(&self, path: &Path) -> Result<Size> {
@@ -220,11 +239,7 @@ impl Connection {
       SELECT pkgs.id, path FROM pkgs
       JOIN ValidPaths vp ON vp.id = pkgs.id;";
 
-    let path = path_to_canonical_string(system)?;
-
-    let stmt = self.prepare_cached(QUERY)?;
-
-    QueryIterator::try_new(stmt, [path], |row| {
+    self.execute_row_query_with_path(QUERY, system, |row| {
       Ok((
         DerivationId(row.get(0)?),
         StorePath(row.get::<_, String>(1)?.into()),
@@ -251,11 +266,7 @@ impl Connection {
       JOIN ValidPaths ON id = p;
     ";
 
-    let path = path_to_canonical_string(path)?;
-
-    let stmt = self.prepare_cached(QUERY)?;
-
-    QueryIterator::try_new(stmt, [path], |row| {
+    self.execute_row_query_with_path(QUERY, path, |row| {
       Ok((
         DerivationId(row.get(0)?),
         StorePath(row.get::<_, String>(1)?.into()),
@@ -286,11 +297,7 @@ impl Connection {
       SELECT p, c from graph;
     ";
 
-    let path = path_to_canonical_string(path)?;
-
-    let stmt = self.prepare_cached(QUERY)?;
-
-    QueryIterator::try_new(stmt, [path], |row| {
+    self.execute_row_query_with_path(QUERY, path, |row| {
       Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?)))
     })
   }

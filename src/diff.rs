@@ -268,7 +268,7 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
 }
 
 #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
-fn write_packages_diffln<'a>(
+fn write_packages_diffln(
   writer: &mut impl fmt::Write,
   paths_old: impl Iterator<Item = StorePath>,
   paths_new: impl Iterator<Item = StorePath>,
@@ -393,10 +393,13 @@ fn write_packages_diffln<'a>(
     })
     .collect::<Vec<_>>();
 
-  diffs.sort_by(|(a_name, _, a_status, _), (b_name, _, b_status, _)| {
-    a_status.cmp(&b_status).then_with(|| a_name.cmp(&b_name))
-  });
+  diffs.sort_by(
+    |&(ref a_name, _, a_status, _), &(ref b_name, _, b_status, _)| {
+      a_status.cmp(&b_status).then_with(|| a_name.cmp(b_name))
+    },
+  );
 
+  #[expect(clippy::pattern_type_mismatch)]
   let name_width = diffs
     .iter()
     .map(|(name, ..)| name.width())

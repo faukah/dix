@@ -30,22 +30,45 @@ use crate::{
 };
 
 #[derive(Deref)]
+/// A wrapper around the internal rusqlite Connection
 pub struct Connection(rusqlite::Connection);
 
 type FilterOkFunc<T> = fn(Result<T, rusqlite::Error>) -> Option<T>;
 
 #[self_referencing]
+/// Contains the sql statement and the query resulting from it
+///
+/// This is necessary since the statement is only created during
+/// the query method on the Connection. The query however contains
+/// a reference to it, so we can't simply return the Query
 struct QueryIteratorCell<'conn, T, F>
 where
   T: 'static,
   F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
 {
+  /// statement prepared by the sql connection
   stmt:  CachedStatement<'conn>,
   #[borrows(mut stmt)]
   #[not_covariant]
+  /// The actual iterator we generate from the query iterator
+  ///
+  /// note that the concrete datatype is rather complicated,
+  /// since we wan't to avoid a box, since we currently only have a single
+  /// way to deal wihh queries that return multiple rows
   inner: FilterMap<Peekable<MappedRows<'this, F>>, FilterOkFunc<T>>,
 }
 
+/// The iterator over the data resulting from an SQL query,
+/// where the rows are mapped to `T`
+///
+/// We ignore all rows where the conversion fails,
+/// but take a look at the first row to make sure
+/// the conversion is not trivially wrong.
+///
+/// The idea is to only use very trivial
+/// conversions that will never fail
+/// if the query actually returns the correct number
+/// of rows
 pub struct QueryIterator<'conn, T, F>
 where
   T: 'static,
@@ -58,6 +81,9 @@ impl<'conn, T, F> QueryIterator<'conn, T, F>
 where
   F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
 {
+  /// May fail if the query itself fails or
+  /// if the first row of the query result can not
+  /// be mapped to `T`
   pub fn try_new<P: rusqlite::Params>(
     stmt: CachedStatement<'conn>,
     params: P,
@@ -75,7 +101,14 @@ where
           if let Some(Err(err)) = iter.peek() {
             return Err(anyhow!("First row conversion failed: {err:?}"));
           }
-          let iter_filtered = iter.filter_map(Result::ok as FilterOkFunc<T>);
+          let iter_filtered = iter.filter_map(
+            (|row| {
+              if let Err(ref err) = row {
+                log::warn!("Row conversion failed: {err:?}");
+              }
+              row.ok()
+            }) as FilterOkFunc<T>,
+          );
 
           Ok(iter_filtered)
         },
@@ -91,6 +124,8 @@ where
   F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
 {
   type Item = T;
+  /// Simple wrapper around the underlying iterator
+  /// contained in the cell
   fn next(&mut self) -> Option<Self::Item> {
     self.cell.with_inner_mut(|inner| inner.next())
   }

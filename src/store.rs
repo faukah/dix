@@ -83,7 +83,7 @@ where
 {
   /// May fail if the query itself fails or
   /// if the first row of the query result can not
-  /// be mapped to `T`
+  /// be mapped to `T`.
   pub fn try_new<P: rusqlite::Params>(
     stmt: CachedStatement<'conn>,
     params: P,

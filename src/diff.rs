@@ -149,6 +149,7 @@ pub fn write_paths_diffln(
         path = path_old.display()
       )
     })?
+    .map(|(_, path)| path)
     .collect();
 
   log::info!(
@@ -164,6 +165,7 @@ pub fn write_paths_diffln(
         path = path_new.display()
       )
     })?
+    .map(|(_, path)| path)
     .collect();
 
   let system_pkgs_old: Vec<_> = connection
@@ -174,7 +176,9 @@ pub fn write_paths_diffln(
         path = path_old.display()
       )
     })?
+    .map(|(_, path)| path)
     .collect();
+
   let system_pkgs_new: Vec<_> = connection
     .query_packages(path_new)
     .with_context(|| {
@@ -183,14 +187,13 @@ pub fn write_paths_diffln(
         path = path_old.display()
       )
     })?
+    .map(|(_, path)| path)
     .collect();
 
   log::info!(
     "found {count} packages in new closure",
     count = paths_new.len(),
   );
-
-  drop(connection);
 
   writeln!(
     writer,
@@ -210,10 +213,10 @@ pub fn write_paths_diffln(
   #[expect(clippy::pattern_type_mismatch)]
   Ok(write_packages_diffln(
     writer,
-    paths_old.iter().map(|(_, path)| path),
-    paths_new.iter().map(|(_, path)| path),
-    system_pkgs_old.iter().map(|(_, path)| path),
-    system_pkgs_new.iter().map(|(_, path)| path),
+    paths_old.iter(),
+    paths_new.iter(),
+    system_pkgs_old.iter(),
+    system_pkgs_new.iter(),
   )?)
 }
 

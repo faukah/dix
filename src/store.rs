@@ -30,7 +30,7 @@ use crate::{
 };
 
 #[derive(Deref)]
-/// A wrapper around the internal rusqlite Connection
+/// A Nix database connection.
 pub struct Connection(rusqlite::Connection);
 
 type FilterOkFunc<T> = fn(Result<T, rusqlite::Error>) -> Option<T>;

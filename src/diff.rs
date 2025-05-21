@@ -282,7 +282,7 @@ fn write_packages_diffln(
 ) -> Result<usize, fmt::Error> {
   let mut paths = HashMap::<String, Diff<Vec<Version>>>::new();
 
-  // collect the names of old and new system packages
+  // Collect the names of old and new paths.
   let system_derivations_old: HashSet<String> = system_paths_old
     .filter_map(|path| {
       match path.parse_name_and_version() {

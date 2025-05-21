@@ -206,9 +206,9 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 }
 
 impl Connection {
-  /// executes a query that returns multiple rows and returns
+  /// Executes a query that returns multiple rows and returns
   /// an iterator over them where the `map` is used to map
-  /// the sql rows to `T`
+  /// the rows to `T`.
   pub fn execute_row_query_with_path<T, M>(
     &self,
     query: &str,

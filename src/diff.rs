@@ -210,7 +210,6 @@ pub fn write_paths_diffln(
 
   writeln!(writer)?;
 
-  #[expect(clippy::pattern_type_mismatch)]
   Ok(write_packages_diffln(
     writer,
     paths_old.iter(),

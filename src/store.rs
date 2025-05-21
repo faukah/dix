@@ -48,13 +48,13 @@ where
 {
   /// statement prepared by the sql connection
   stmt:  CachedStatement<'conn>,
-  #[borrows(mut stmt)]
-  #[not_covariant]
   /// The actual iterator we generate from the query iterator
   ///
   /// note that the concrete datatype is rather complicated,
   /// since we wan't to avoid a box, since we currently only have a single
   /// way to deal wihh queries that return multiple rows
+  #[borrows(mut stmt)]
+  #[not_covariant]
   inner: FilterMap<Peekable<MappedRows<'this, F>>, FilterOkFunc<T>>,
 }
 

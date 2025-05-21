@@ -108,9 +108,12 @@ enum DerivationSelectionStatus {
   NewlyUnselected,
 }
 
-
 impl DerivationSelectionStatus {
-  fn from_names(name: &str, old: &HashSet<&str>, new: &HashSet<&str>) -> Self {
+  fn from_names(
+    name: &str,
+    old: &HashSet<String>,
+    new: &HashSet<String>,
+  ) -> Self {
     match (old.contains(name), new.contains(name)) {
       (true, true) => Self::Selected,
       (true, false) => Self::NewlyUnselected,
@@ -187,7 +190,7 @@ pub fn write_paths_diffln(
       )
     })?
     .map(|(_, path)| path);
-  
+
   log::info!(
     "found {count}+ packages in new closure",
     count = paths_new.size_hint().0,

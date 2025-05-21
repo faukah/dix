@@ -124,8 +124,6 @@ where
   F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
 {
   type Item = T;
-  /// Simple wrapper around the underlying iterator
-  /// contained in the cell
   fn next(&mut self) -> Option<Self::Item> {
     self.cell.with_inner_mut(|inner| inner.next())
   }

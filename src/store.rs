@@ -36,7 +36,7 @@ pub struct Connection(rusqlite::Connection);
 type FilterOkFunc<T> = fn(Result<T, rusqlite::Error>) -> Option<T>;
 
 #[self_referencing]
-/// Contains the sql statement and the query resulting from it
+/// Contains the SQL statement and the query resulting from it.
 ///
 /// This is necessary since the statement is only created during
 /// the query method on the Connection. The query however contains

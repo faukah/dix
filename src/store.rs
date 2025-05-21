@@ -58,8 +58,8 @@ where
   inner: FilterMap<Peekable<MappedRows<'this, F>>, FilterOkFunc<T>>,
 }
 
-/// The iterator over the data resulting from an SQL query,
-/// where the rows are mapped to `T`
+/// The iterator over the data resulting from a SQL query,
+/// where the rows are mapped to `T`.
 ///
 /// We ignore all rows where the conversion fails,
 /// but take a look at the first row to make sure
@@ -68,7 +68,7 @@ where
 /// The idea is to only use very trivial
 /// conversions that will never fail
 /// if the query actually returns the correct number
-/// of rows
+/// of rows.
 pub struct QueryIterator<'conn, T, F>
 where
   T: 'static,

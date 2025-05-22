@@ -312,10 +312,10 @@ impl Connection {
     })
   }
 
-  /// returns all edges of the dependency graph
+  /// Returns all edges of the dependency graph.
   ///
-  /// you might want to build an adjacency list from the resulting
-  /// edges
+  /// You might want to build an adjacency list from the resulting
+  /// edges.
   #[expect(dead_code)]
   pub fn query_dependency_graph(
     &self,

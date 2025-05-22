@@ -1,7 +1,12 @@
+#![allow(clippy::mem_forget)]
+
 use std::{
-  collections::HashMap,
+  iter::{
+    FilterMap,
+    Iterator,
+    Peekable,
+  },
   path::Path,
-  result,
 };
 
 use anyhow::{
@@ -10,7 +15,13 @@ use anyhow::{
   anyhow,
 };
 use derive_more::Deref;
-use rusqlite::OpenFlags;
+use ouroboros::self_referencing;
+use rusqlite::{
+  CachedStatement,
+  MappedRows,
+  OpenFlags,
+  Row,
+};
 use size::Size;
 
 use crate::{
@@ -19,7 +30,104 @@ use crate::{
 };
 
 #[derive(Deref)]
+/// A Nix database connection.
 pub struct Connection(rusqlite::Connection);
+
+type FilterOkFunc<T> = fn(Result<T, rusqlite::Error>) -> Option<T>;
+
+#[self_referencing]
+/// Contains the SQL statement and the query resulting from it.
+///
+/// This is necessary since the statement is only created during
+/// the query method on the Connection. The query however contains
+/// a reference to it, so we can't simply return the Query
+struct QueryIteratorCell<'conn, T, F>
+where
+  T: 'static,
+  F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
+{
+  /// statement prepared by the sql connection
+  stmt:  CachedStatement<'conn>,
+  /// The actual iterator we generate from the query iterator
+  ///
+  /// note that the concrete datatype is rather complicated,
+  /// since we wan't to avoid a box, since we currently only have a single
+  /// way to deal wihh queries that return multiple rows
+  #[borrows(mut stmt)]
+  #[not_covariant]
+  inner: FilterMap<Peekable<MappedRows<'this, F>>, FilterOkFunc<T>>,
+}
+
+/// The iterator over the data resulting from a SQL query,
+/// where the rows are mapped to `T`.
+///
+/// We ignore all rows where the conversion fails,
+/// but take a look at the first row to make sure
+/// the conversion is not trivially wrong.
+///
+/// The idea is to only use very trivial
+/// conversions that will never fail
+/// if the query actually returns the correct number
+/// of rows.
+pub struct QueryIterator<'conn, T, F>
+where
+  T: 'static,
+  F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
+{
+  cell: QueryIteratorCell<'conn, T, F>,
+}
+
+impl<'conn, T, F> QueryIterator<'conn, T, F>
+where
+  F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
+{
+  /// May fail if the query itself fails or
+  /// if the first row of the query result can not
+  /// be mapped to `T`.
+  pub fn try_new<P: rusqlite::Params>(
+    stmt: CachedStatement<'conn>,
+    params: P,
+    map: F,
+  ) -> Result<Self> {
+    let cell_res = QueryIteratorCell::try_new(stmt, |stmt| {
+      let inner_iter = stmt
+        .query_map(params, map)
+        .map(Iterator::peekable)
+        .with_context(|| "Unable to perform query");
+
+      match inner_iter {
+        Ok(mut iter) => {
+          #[expect(clippy::pattern_type_mismatch)]
+          if let Some(Err(err)) = iter.peek() {
+            return Err(anyhow!("First row conversion failed: {err:?}"));
+          }
+          let iter_filtered = iter.filter_map(
+            (|row| {
+              if let Err(ref err) = row {
+                log::warn!("Row conversion failed: {err:?}");
+              }
+              row.ok()
+            }) as FilterOkFunc<T>,
+          );
+
+          Ok(iter_filtered)
+        },
+        Err(err) => Err(err),
+      }
+    });
+    cell_res.map(|cell| Self { cell })
+  }
+}
+
+impl<T: 'static, F> Iterator for QueryIterator<'_, T, F>
+where
+  F: Fn(&rusqlite::Row) -> rusqlite::Result<T>,
+{
+  type Item = T;
+  fn next(&mut self) -> Option<Self::Item> {
+    self.cell.with_inner_mut(|inner| inner.next())
+  }
+}
 
 /// Connects to the Nix database
 ///
@@ -98,6 +206,24 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 }
 
 impl Connection {
+  /// Executes a query that returns multiple rows and returns
+  /// an iterator over them where the `map` is used to map
+  /// the rows to `T`.
+  pub fn execute_row_query_with_path<T, M>(
+    &self,
+    query: &str,
+    path: &Path,
+    map: M,
+  ) -> Result<impl Iterator<Item = T>>
+  where
+    T: 'static,
+    M: Fn(&Row) -> rusqlite::Result<T>,
+  {
+    let path = path_to_canonical_string(path)?;
+    let stmt = self.prepare_cached(query)?;
+    QueryIterator::try_new(stmt, [path], map)
+  }
+
   /// Gets the total closure size of the given store path by summing up the nar
   /// size of all dependent derivations.
   pub fn query_closure_size(&self, path: &Path) -> Result<Size> {
@@ -130,7 +256,7 @@ impl Connection {
   pub fn query_system_derivations(
     &self,
     system: &Path,
-  ) -> Result<Vec<(DerivationId, StorePath)>> {
+  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>> {
     const QUERY: &str = "
       WITH
         systemderiv AS (
@@ -151,26 +277,19 @@ impl Connection {
       JOIN ValidPaths vp ON vp.id = pkgs.id;
     ";
 
-    let path = path_to_canonical_string(system)?;
-
-    let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
-      .prepare_cached(QUERY)?
-      .query_map([path], |row| {
-        Ok((
-          DerivationId(row.get(0)?),
-          StorePath(row.get::<_, String>(1)?.into()),
-        ))
-      })?
-      .collect();
-
-    Ok(packages?)
+    self.execute_row_query_with_path(QUERY, system, |row| {
+      Ok((
+        DerivationId(row.get(0)?),
+        StorePath(row.get::<_, String>(1)?.into()),
+      ))
+    })
   }
 
   /// Gathers all derivations that the given profile path depends on.
   pub fn query_dependents(
     &self,
     path: &Path,
-  ) -> Result<Vec<(DerivationId, StorePath)>> {
+  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
@@ -185,32 +304,23 @@ impl Connection {
       JOIN ValidPaths ON id = p;
     ";
 
-    let path = path_to_canonical_string(path)?;
-
-    let packages: result::Result<Vec<(DerivationId, StorePath)>, _> = self
-      .prepare_cached(QUERY)?
-      .query_map([path], |row| {
-        Ok((
-          DerivationId(row.get(0)?),
-          StorePath(row.get::<_, String>(1)?.into()),
-        ))
-      })?
-      .collect();
-
-    Ok(packages?)
+    self.execute_row_query_with_path(QUERY, path, |row| {
+      Ok((
+        DerivationId(row.get(0)?),
+        StorePath(row.get::<_, String>(1)?.into()),
+      ))
+    })
   }
 
-  /// Gathers the complete dependency graph of of the store path as an adjacency
-  /// list.
+  /// Returns all edges of the dependency graph.
   ///
-  /// We might want to collect the paths in the graph directly as
-  /// well in the future, depending on how much we use them
-  /// in the operations on the graph.
+  /// You might want to build an adjacency list from the resulting
+  /// edges.
   #[expect(dead_code)]
   pub fn query_dependency_graph(
     &self,
     path: &StorePath,
-  ) -> Result<HashMap<DerivationId, Vec<DerivationId>>> {
+  ) -> Result<impl Iterator<Item = (DerivationId, DerivationId)>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p, c) AS (
@@ -225,23 +335,8 @@ impl Connection {
       SELECT p, c from graph;
     ";
 
-    let path = path_to_canonical_string(path)?;
-
-    let mut adj = HashMap::<DerivationId, Vec<DerivationId>>::new();
-
-    let mut statement = self.prepare_cached(QUERY)?;
-
-    let edges = statement.query_map([path], |row| {
+    self.execute_row_query_with_path(QUERY, path, |row| {
       Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?)))
-    })?;
-
-    for row in edges {
-      let (from, to) = row?;
-
-      adj.entry(from).or_default().push(to);
-      adj.entry(to).or_default();
-    }
-
-    Ok(adj)
+    })
   }
 }

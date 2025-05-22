@@ -109,7 +109,11 @@ enum DerivationSelectionStatus {
 }
 
 impl DerivationSelectionStatus {
-  fn from_names(name: &str, old: &HashSet<&str>, new: &HashSet<&str>) -> Self {
+  fn from_names(
+    name: &str,
+    old: &HashSet<String>,
+    new: &HashSet<String>,
+  ) -> Self {
     match (old.contains(name), new.contains(name)) {
       (true, true) => Self::Selected,
       (true, false) => Self::NewlyUnselected,
@@ -142,27 +146,30 @@ pub fn write_paths_diffln(
 ) -> Result<usize> {
   let connection = store::connect()?;
 
-  let paths_old = connection.query_dependents(path_old).with_context(|| {
-    format!(
-      "failed to query dependencies of path '{path}'",
-      path = path_old.display()
-    )
-  })?;
+  let paths_old = connection
+    .query_dependents(path_old)
+    .with_context(|| {
+      format!(
+        "failed to query dependencies of path '{path}'",
+        path = path_old.display()
+      )
+    })?
+    .map(|(_, path)| path);
+
   log::info!(
-    "found {count} paths in old closure",
-    count = paths_old.len(),
+    "found {count}+ packages in old closure",
+    count = paths_old.size_hint().0,
   );
 
-  let paths_new = connection.query_dependents(path_new).with_context(|| {
-    format!(
-      "failed to query dependencies of path '{path}'",
-      path = path_new.display()
-    )
-  })?;
-  log::info!(
-    "found {count} paths in new closure",
-    count = paths_new.len(),
-  );
+  let paths_new = connection
+    .query_dependents(path_new)
+    .with_context(|| {
+      format!(
+        "failed to query dependencies of path '{path}'",
+        path = path_new.display()
+      )
+    })?
+    .map(|(_, path)| path);
 
   let system_derivations_old = connection
     .query_system_derivations(path_old)
@@ -171,7 +178,8 @@ pub fn write_paths_diffln(
         "failed to query system derivations of path '{path}",
         path = path_old.display()
       )
-    })?;
+    })?
+    .map(|(_, path)| path);
 
   let system_derivations_new = connection
     .query_system_derivations(path_new)
@@ -180,9 +188,13 @@ pub fn write_paths_diffln(
         "failed to query system derivations of path '{path}",
         path = path_old.display()
       )
-    })?;
+    })?
+    .map(|(_, path)| path);
 
-  drop(connection);
+  log::info!(
+    "found {count}+ packages in new closure",
+    count = paths_new.size_hint().0,
+  );
 
   writeln!(
     writer,
@@ -199,13 +211,12 @@ pub fn write_paths_diffln(
 
   writeln!(writer)?;
 
-  #[expect(clippy::pattern_type_mismatch)]
   Ok(write_packages_diffln(
     writer,
-    paths_old.iter().map(|(_, path)| path),
-    paths_new.iter().map(|(_, path)| path),
-    system_derivations_old.iter().map(|(_, path)| path),
-    system_derivations_new.iter().map(|(_, path)| path),
+    paths_old,
+    paths_new,
+    system_derivations_old,
+    system_derivations_new,
   )?)
 }
 
@@ -262,20 +273,20 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
 }
 
 #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
-fn write_packages_diffln<'a>(
+fn write_packages_diffln(
   writer: &mut impl fmt::Write,
-  paths_old: impl Iterator<Item = &'a StorePath>,
-  paths_new: impl Iterator<Item = &'a StorePath>,
-  system_paths_old: impl Iterator<Item = &'a StorePath>,
-  system_paths_new: impl Iterator<Item = &'a StorePath>,
+  paths_old: impl Iterator<Item = StorePath>,
+  paths_new: impl Iterator<Item = StorePath>,
+  system_paths_old: impl Iterator<Item = StorePath>,
+  system_paths_new: impl Iterator<Item = StorePath>,
 ) -> Result<usize, fmt::Error> {
-  let mut paths = HashMap::<&str, Diff<Vec<Version>>>::new();
+  let mut paths = HashMap::<String, Diff<Vec<Version>>>::new();
 
-  let system_derivations_old: HashSet<&str> = system_paths_old
-    .map(|path| path.parse_name_and_version())
-    .filter_map(|res| {
-      match res {
-        Ok((name, _)) => Some(name),
+  // Collect the names of old and new paths.
+  let system_derivations_old: HashSet<String> = system_paths_old
+    .filter_map(|path| {
+      match path.parse_name_and_version() {
+        Ok((name, _)) => Some(name.into()),
         Err(error) => {
           log::warn!("error parsing old system path name and version: {error}");
           None
@@ -284,11 +295,10 @@ fn write_packages_diffln<'a>(
     })
     .collect();
 
-  let system_derivations_new: HashSet<&str> = system_paths_new
-    .map(|path| path.parse_name_and_version())
-    .filter_map(|res| {
-      match res {
-        Ok((name, _)) => Some(name),
+  let system_derivations_new: HashSet<String> = system_paths_new
+    .filter_map(|path| {
+      match path.parse_name_and_version() {
+        Ok((name, _)) => Some(name.into()),
         Err(error) => {
           log::warn!("error parsing new system path name and version: {error}");
           None
@@ -304,7 +314,7 @@ fn write_packages_diffln<'a>(
         log::debug!("parsed version: {version:?}");
 
         paths
-          .entry(name)
+          .entry(name.into())
           .or_default()
           .old
           .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
@@ -323,7 +333,7 @@ fn write_packages_diffln<'a>(
         log::debug!("parsed version: {version:?}");
 
         paths
-          .entry(name)
+          .entry(name.into())
           .or_default()
           .new
           .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
@@ -380,7 +390,7 @@ fn write_packages_diffln<'a>(
       };
 
       let selection = DerivationSelectionStatus::from_names(
-        name,
+        &name,
         &system_derivations_old,
         &system_derivations_new,
       );
@@ -389,19 +399,22 @@ fn write_packages_diffln<'a>(
     })
     .collect::<Vec<_>>();
 
-  diffs.sort_by(|&(a_name, _, a_status, _), &(b_name, _, b_status, _)| {
-    a_status.cmp(&b_status).then_with(|| a_name.cmp(b_name))
-  });
+  diffs.sort_by(
+    |&(ref a_name, _, a_status, _), &(ref b_name, _, b_status, _)| {
+      a_status.cmp(&b_status).then_with(|| a_name.cmp(b_name))
+    },
+  );
 
+  #[expect(clippy::pattern_type_mismatch)]
   let name_width = diffs
     .iter()
-    .map(|&(name, ..)| name.width())
+    .map(|(name, ..)| name.width())
     .max()
     .unwrap_or(0);
 
   let mut last_status = None::<DiffStatus>;
 
-  for &(name, ref versions, status, selection) in &diffs {
+  for &(ref name, ref versions, status, selection) in &diffs {
     use DiffStatus::{
       Added,
       Changed,

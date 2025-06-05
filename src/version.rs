@@ -90,7 +90,9 @@ impl<'a> Iterator for VersionComponentIter<'a> {
   type Item = Result<VersionComponent<'a>, &'a str>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    if self.starts_with(['.', '-', '*', '×', ' ']) {
+    const SPLIT_CHARS: &[char] = &['.', '-', '+', '*', '×', ' '];
+
+    if self.starts_with(SPLIT_CHARS) {
       let len = self.chars().next().unwrap().len_utf8();
       let (this, rest) = self.split_at(len);
 
@@ -105,8 +107,7 @@ impl<'a> Iterator for VersionComponentIter<'a> {
     let component_len = self
       .chars()
       .take_while(|&char| {
-        char.is_ascii_digit() == is_digit
-          && !matches!(char, '.' | '-' | '*' | ' ' | '×')
+        char.is_ascii_digit() == is_digit && !SPLIT_CHARS.contains(&char)
       })
       .map(char::len_utf8)
       .sum();

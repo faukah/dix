@@ -99,8 +99,14 @@
           ;
         };
 
-        # For some reason rust-analyzer doesn't pick it up sometimes.
-        env.CLIPPY_CONF_DIR = pkgs.writeTextDir "clippy.toml" (lib.readFile ./.clippy.toml);
+
+        env = {
+          # For some reason rust-analyzer doesn't pick it up sometimes.
+          CLIPPY_CONF_DIR = pkgs.writeTextDir "clippy.toml" (lib.readFile ./.clippy.toml);
+
+          RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+        };
+
 
         shellHook = ''
           # So we can do `dix` instead of `./target/debug/dix`

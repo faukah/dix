@@ -1,15 +1,14 @@
 use std::{
-  collections::HashMap,
+  collections::{
+    HashMap,
+    HashSet,
+  },
   fmt,
   io,
-  path::{
-    Path,
-    PathBuf,
-  },
+  path::PathBuf,
 };
 
 use size::Size;
-use yansi::Paint;
 
 use crate::{
   StorePath,
@@ -17,16 +16,8 @@ use crate::{
   diff::{
     self,
     Diff,
-    push_parsed_name_and_version_new,
-    push_parsed_name_and_version_old,
   },
 };
-
-impl<T> diff::Diff<T> {
-  fn new(old: T, new: T) -> diff::Diff<T> {
-    Diff { old, new }
-  }
-}
 
 struct WriteFmt<W: io::Write>(W);
 
@@ -42,12 +33,33 @@ fn test_deduplicate_versions() {
     "2.3".into(),
     "1.0".into(),
     "2.3".into(),
-    "4.8".into(),
+    "1.0.18343".into(),
+    "1.0.18343".into(),
+    "1.823.348".into(),
+    "1.0.18343".into(),
+    "1.823.348".into(),
+    "A".into(),
+    "B".into(),
+    "B".into(),
+    "1.823.348".into(),
     "2.3".into(),
+    "1.0.18343".into(),
+    "1.823.348".into(),
+    "4.8".into(),
+    "1.823.348".into(),
     "1.0".into(),
+    "0".into(),
   ];
-  let versions_post: Vec<Version> =
-    vec!["1.0 ×2".into(), "2.3 ×3".into(), "4.8".into()];
+  let versions_post: Vec<Version> = vec![
+    "A".into(),
+    "B ×2".into(),
+    "0".into(),
+    "1.0 ×2".into(),
+    "1.0.18343 ×4".into(),
+    "1.823.348 ×5".into(),
+    "2.3 ×3".into(),
+    "4.8".into(),
+  ];
   diff::deduplicate_versions(&mut versions_pre);
 
   assert_eq!(versions_pre, versions_post);
@@ -187,4 +199,62 @@ fn test_push_parsed_name_and_version_new() {
   assert_eq!(paths.values().take(1).next().unwrap().new, vec![
     "3.12.0".into()
   ]);
+}
+
+#[test]
+fn test_get_system_derivations() {
+  let paths = vec![
+    StorePath::try_from(PathBuf::from(
+      "/nix/store/6d4dp25lani18z9sbnb5shwzzc3y5yh8-bacon-3.12.0",
+    ))
+    .unwrap(),
+    StorePath::try_from(PathBuf::from(
+      "/nix/store/cg09nslw3w6afyynjw484b86d47ic1cb-coreutils-9.7",
+    ))
+    .unwrap(),
+    StorePath::try_from(PathBuf::from(
+      "/nix/store/6d4dp25lani18z9sbnb5shwzzc3y5yh8-cool_package-189",
+    ))
+    .unwrap(),
+  ];
+
+  let mut names: HashSet<String> = HashSet::new();
+  names.insert("coreutils".to_owned());
+  names.insert("bacon".to_owned());
+  names.insert("cool_package".to_owned());
+
+  let system_paths = paths.into_iter();
+
+  let bla = diff::get_system_derivations(system_paths);
+
+  assert_eq!(bla, names);
+}
+
+#[test]
+fn test_collect_diffs() {
+  let old_versions: Vec<Version> = vec![
+    "6.14.8".into(),
+    "6.14.8-modules".into(),
+    "6.14.8-modules-shrunk".into(),
+    "11.1".into(),
+    "11.1-man".into(),
+  ];
+  let new_versions: Vec<Version> = vec![
+    "6.14.9".into(),
+    "6.24.3-modules".into(),
+    "6.12.9-modules-shrunk".into(),
+    "11.0".into(),
+    "11.3-man".into(),
+  ];
+
+  let versions = Diff {
+    old: old_versions,
+    new: new_versions,
+  };
+
+  let (diff_pre, diff_post) = diff::collect_diffs(&versions).unwrap();
+
+  assert_ne!(diff_pre, diff_post);
+  assert_eq!(diff_pre, diff_pre);
+  assert_eq!(diff_post, diff_post);
 }

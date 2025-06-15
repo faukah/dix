@@ -426,7 +426,7 @@ pub fn write_size_diffln(
   )
 }
 
-fn get_system_derivations(
+pub fn get_system_derivations(
   system_paths: impl Iterator<Item = StorePath>,
 ) -> HashSet<String> {
   system_paths
@@ -530,7 +530,7 @@ pub fn get_status_from_versions(
   Some(result)
 }
 
-fn collect_diffs(
+pub fn collect_diffs(
   versions: &Diff<Vec<Version>>,
 ) -> Result<(Vec<String>, Vec<String>), fmt::Error> {
   let mut old_versions = Vec::<String>::new();

@@ -38,20 +38,20 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
-struct Diff<T> {
-  old: T,
-  new: T,
+pub struct Diff<T> {
+  pub old: T,
+  pub new: T,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Change {
+pub enum Change {
   UpgradeDowngrade,
   Upgraded,
   Downgraded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DiffStatus {
+pub enum DiffStatus {
   Changed(Change),
   Added,
   Removed,
@@ -442,7 +442,7 @@ fn get_system_derivations(
     .collect()
 }
 
-fn push_parsed_name_and_version_old(
+pub fn push_parsed_name_and_version_old(
   path: &StorePath,
   paths: &mut HashMap<String, Diff<Vec<Version>>>,
 ) {
@@ -463,7 +463,8 @@ fn push_parsed_name_and_version_old(
     },
   }
 }
-fn push_parsed_name_and_version_new(
+
+pub fn push_parsed_name_and_version_new(
   path: &StorePath,
   paths: &mut HashMap<String, Diff<Vec<Version>>>,
 ) {
@@ -485,7 +486,7 @@ fn push_parsed_name_and_version_new(
   }
 }
 
-fn get_status_from_versions(
+pub fn get_status_from_versions(
   versions: &Diff<Vec<Version>>,
 ) -> Option<DiffStatus> {
   let result = match (versions.old.len(), versions.new.len()) {

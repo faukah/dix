@@ -90,7 +90,7 @@ impl<'a> Iterator for VersionComponentIter<'a> {
   type Item = Result<VersionComponent<'a>, &'a str>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    const SPLIT_CHARS: &[char] = &['.', '-', '+', '*', '×', ' '];
+    const SPLIT_CHARS: &[char] = &['.', '-', '+', '*', '=', '×', ' '];
 
     if self.starts_with(SPLIT_CHARS) {
       let len = self.chars().next().unwrap().len_utf8();

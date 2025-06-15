@@ -44,10 +44,15 @@ struct Diff<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DiffStatus {
-  Changed,
+enum Change {
+  UpgradeDowngrade,
   Upgraded,
   Downgraded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiffStatus {
+  Changed(Change),
   Added,
   Removed,
 }
@@ -55,9 +60,9 @@ enum DiffStatus {
 impl DiffStatus {
   fn char(self) -> Painted<&'static char> {
     match self {
-      Self::Changed => 'C'.yellow().bold(),
-      Self::Upgraded => 'U'.bright_cyan().bold(),
-      Self::Downgraded => 'D'.magenta().bold(),
+      Self::Changed(Change::UpgradeDowngrade) => 'C'.yellow().bold(),
+      Self::Changed(Change::Upgraded) => 'U'.bright_cyan().bold(),
+      Self::Changed(Change::Downgraded) => 'D'.magenta().bold(),
       Self::Added => 'A'.green().bold(),
       Self::Removed => 'R'.red().bold(),
     }
@@ -72,24 +77,14 @@ impl PartialOrd for DiffStatus {
 
 impl cmp::Ord for DiffStatus {
   fn cmp(&self, other: &Self) -> cmp::Ordering {
-    use DiffStatus::{
-      Added,
-      Changed,
-      Downgraded,
-      Removed,
-      Upgraded,
-    };
-
-    #[expect(clippy::match_same_arms)]
     match (*self, *other) {
-      // `Changed` gets displayed earlier than `Added` and `Removed`.
-      (Changed | Upgraded | Downgraded, Removed | Added) => cmp::Ordering::Less,
+      (Self::Changed(_), _) => cmp::Ordering::Less,
+      (_, Self::Changed(_)) => cmp::Ordering::Greater,
 
-      // `Added` gets displayed before `Removed`.
-      (Added, Removed) => cmp::Ordering::Less,
-      (Removed | Added, _) => cmp::Ordering::Greater,
+      (Self::Added, Self::Removed) => cmp::Ordering::Less,
+      (Self::Added, Self::Added) => cmp::Ordering::Equal,
 
-      _ => cmp::Ordering::Equal,
+      (Self::Removed, _) => cmp::Ordering::Greater,
     }
   }
 }
@@ -380,12 +375,12 @@ fn write_packages_diffln(
             }
           }
 
-          match (saw_upgrade, saw_downgrade) {
-            (true, true) => DiffStatus::Changed,
-            (true, false) => DiffStatus::Upgraded,
-            (false, true) => DiffStatus::Downgraded,
+          DiffStatus::Changed(match (saw_upgrade, saw_downgrade) {
+            (true, true) => Change::UpgradeDowngrade,
+            (true, false) => Change::Upgraded,
+            (false, true) => Change::Downgraded,
             _ => return None,
-          }
+          })
         },
       };
 
@@ -415,35 +410,22 @@ fn write_packages_diffln(
   let mut last_status = None::<DiffStatus>;
 
   for &(ref name, ref versions, status, selection) in &diffs {
-    use DiffStatus::{
-      Added,
-      Changed,
-      Downgraded,
-      Removed,
-      Upgraded,
-    };
-
-    let merged_status = if let Downgraded | Upgraded = status {
-      Changed
-    } else {
-      status
-    };
-
-    if last_status != Some(merged_status) {
+    if last_status.is_none_or(|last_status| {
+      last_status.cmp(&status) != cmp::Ordering::Equal
+    }) {
       writeln!(
         writer,
         "{nl}{status}",
         nl = if last_status.is_some() { "\n" } else { "" },
-        status = match merged_status {
-          Changed => "CHANGED",
-          Upgraded | Downgraded => unreachable!(),
-          Added => "ADDED",
-          Removed => "REMOVED",
+        status = match status {
+          DiffStatus::Changed(_) => "CHANGED",
+          DiffStatus::Added => "ADDED",
+          DiffStatus::Removed => "REMOVED",
         }
         .bold(),
       )?;
 
-      last_status = Some(merged_status);
+      last_status = Some(status);
     }
 
     let status = status.char();

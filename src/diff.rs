@@ -77,14 +77,18 @@ impl PartialOrd for DiffStatus {
 
 impl cmp::Ord for DiffStatus {
   fn cmp(&self, other: &Self) -> cmp::Ordering {
+    #[expect(unreachable_patterns)]
     match (*self, *other) {
+      (Self::Changed(_), Self::Changed(_)) => cmp::Ordering::Equal,
       (Self::Changed(_), _) => cmp::Ordering::Less,
       (_, Self::Changed(_)) => cmp::Ordering::Greater,
 
-      (Self::Added, Self::Removed) => cmp::Ordering::Less,
       (Self::Added, Self::Added) => cmp::Ordering::Equal,
+      (Self::Added, _) => cmp::Ordering::Less,
 
+      (Self::Removed, Self::Removed) => cmp::Ordering::Equal,
       (Self::Removed, _) => cmp::Ordering::Greater,
+      (_, Self::Removed) => cmp::Ordering::Less,
     }
   }
 }
@@ -411,6 +415,8 @@ fn write_packages_diffln(
 
   for &(ref name, ref versions, status, selection) in &diffs {
     if last_status.is_none_or(|last_status| {
+      // Using the Ord implementation instead of Eq on purpose.
+      // Eq returns false for DiffStatus::Changed(X) == DiffStatus::Changed(Y).
       last_status.cmp(&status) != cmp::Ordering::Equal
     }) {
       writeln!(

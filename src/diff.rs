@@ -87,10 +87,7 @@ impl cmp::Ord for DiffStatus {
 
       // `Added` gets displayed before `Removed`.
       (Added, Removed) => cmp::Ordering::Less,
-      (Removed, Added) => cmp::Ordering::Greater,
-      (Removed | Added, Changed | Upgraded | Downgraded) => {
-        cmp::Ordering::Greater
-      },
+      (Removed | Added, _) => cmp::Ordering::Greater,
 
       _ => cmp::Ordering::Equal,
     }
@@ -418,20 +415,35 @@ fn write_packages_diffln(
   let mut last_status = None::<DiffStatus>;
 
   for &(ref name, ref versions, status, selection) in &diffs {
-    if last_status != Some(status) {
+    use DiffStatus::{
+      Added,
+      Changed,
+      Downgraded,
+      Removed,
+      Upgraded,
+    };
+
+    let merged_status = if let Downgraded | Upgraded = status {
+      Changed
+    } else {
+      status
+    };
+
+    if last_status != Some(merged_status) {
       writeln!(
         writer,
         "{nl}{status}",
         nl = if last_status.is_some() { "\n" } else { "" },
-        status = match status {
-          DiffStatus::Added => "ADDED",
-          DiffStatus::Removed => "REMOVED",
-          _ => "CHANGED",
+        status = match merged_status {
+          Changed => "CHANGED",
+          Upgraded | Downgraded => unreachable!(),
+          Added => "ADDED",
+          Removed => "REMOVED",
         }
         .bold(),
       )?;
 
-      last_status = Some(status);
+      last_status = Some(merged_status);
     }
 
     let status = status.char();

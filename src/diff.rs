@@ -231,7 +231,7 @@ pub fn write_paths_diffln(
 /// deduplicate_versions(&mut versions);
 /// assert_eq!(*versions, &["1.0 ×2", "2.3 ×3", "4.8"]);
 /// ```
-fn deduplicate_versions(versions: &mut Vec<Version>) {
+pub fn deduplicate_versions(versions: &mut Vec<Version>) {
   versions.sort_unstable();
 
   let mut deduplicated = Vec::new();

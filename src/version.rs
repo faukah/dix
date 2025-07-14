@@ -92,6 +92,10 @@ impl<'a> Iterator for VersionComponentIter<'a> {
   fn next(&mut self) -> Option<Self::Item> {
     const SPLIT_CHARS: &[char] = &['.', '-', '+', '*', '=', '×', ' '];
 
+    if self.is_empty() {
+      return None;
+    }
+
     if self.starts_with(SPLIT_CHARS) {
       let len = self.chars().next().unwrap().len_utf8();
       let (this, rest) = self.split_at(len);
@@ -100,15 +104,10 @@ impl<'a> Iterator for VersionComponentIter<'a> {
       return Some(Err(this));
     }
 
-    // Get the next character and decide if it is a digit.
-    let is_digit = self.chars().next()?.is_ascii_digit();
-
     // Based on this collect characters after this into the component.
     let component_len = self
       .chars()
-      .take_while(|&char| {
-        char.is_ascii_digit() == is_digit && !SPLIT_CHARS.contains(&char)
-      })
+      .take_while(|&char| !SPLIT_CHARS.contains(&char))
       .map(char::len_utf8)
       .sum();
 

@@ -353,8 +353,14 @@ fn write_packages_diffln(
       deduplicate_versions(&mut versions.old);
       deduplicate_versions(&mut versions.new);
 
+      let old_copy = versions.old.clone();
+      let new_copy = versions.new.clone();
+
+      versions.old.retain(|ver| !new_copy.contains(ver));
+      versions.new.retain(|ver| !old_copy.contains(ver));
+
       let status = match (versions.old.len(), versions.new.len()) {
-        (0, 0) => unreachable!(),
+        (0, 0) => return None,
         (0, _) => DiffStatus::Added,
         (_, 0) => DiffStatus::Removed,
         _ => {

@@ -8,6 +8,7 @@ use std::{
     self,
     Write as _,
   },
+  fs,
   path::{
     Path,
     PathBuf,
@@ -209,7 +210,9 @@ pub fn write_paths_diffln(
     writer,
     "{arrows} {new}",
     arrows = ">>>".bold(),
-    new = path_new.display(),
+    new = fs::canonicalize(path_new)
+      .unwrap_or_else(|_| path_new.to_path_buf())
+      .display(),
   )?;
 
   writeln!(writer)?;

@@ -547,11 +547,12 @@ fn write_packages_diffln(
                 match (old_comp, new_comp) {
                   (Ok(old_comp), Ok(new_comp)) => {
                     let mut difference_started = false;
+                    let is_hash = is_hash(&old_comp);
 
                     for char in diff::chars(*old_comp, *new_comp) {
                       match char {
                         diff::Result::Both(old_part, new_part) => {
-                          if difference_started || old_part != new_part {
+                          if difference_started {
                             difference_started = true;
                             write!(oldacc, "{old}", old = old_part.red())?;
                             write!(newacc, "{new}", new = new_part.green())?;
@@ -668,4 +669,19 @@ pub fn write_size_diffln(
       size_diff.red()
     },
   )
+}
+
+#[expect(clippy::cast_precision_loss)]
+fn dissimilar_score(input: &str) -> f64 {
+  input
+    .chars()
+    .chunk_by(char::is_ascii_digit)
+    .into_iter()
+    .map(|(_, chunk)| (2.1_f64).powf(chunk.count() as f64))
+    .sum::<f64>()
+    / input.chars().count() as f64
+}
+
+fn is_hash(input: &str) -> bool {
+  dissimilar_score(input) < 70.0
 }

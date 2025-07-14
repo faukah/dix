@@ -347,7 +347,6 @@ fn write_packages_diffln(
       },
     }
   }
-
   let mut diffs = paths
     .into_iter()
     .filter_map(|(name, mut versions)| {
@@ -502,6 +501,15 @@ fn write_packages_diffln(
             newwrote = true;
           }
 
+          let mut old_version: Vec<_> = old_version.into_iter().collect();
+          let mut new_version: Vec<_> = new_version.into_iter().collect();
+
+          let last_same = old_version.last() == new_version.last();
+          let last = (last_same).then(|| {
+            old_version.pop();
+            new_version.pop().unwrap()
+          });
+
           for diff in Itertools::zip_longest(
             old_version.into_iter(),
             new_version.into_iter(),
@@ -532,40 +540,54 @@ fn write_packages_diffln(
               EitherOrBoth::Both(old_comp, new_comp) => {
                 match (old_comp, new_comp) {
                   (Ok(old_comp), Ok(new_comp)) => {
+                    let mut difference_started = false;
+
                     for char in diff::chars(*old_comp, *new_comp) {
                       match char {
+                        diff::Result::Both(old_part, new_part) => {
+                          if difference_started || old_part != new_part {
+                            difference_started = true;
+                            write!(oldacc, "{old}", old = old_part.red())?;
+                            write!(newacc, "{new}", new = new_part.green())?;
+                          } else {
+                            write!(oldacc, "{old}", old = old_part.yellow())?;
+                            write!(newacc, "{new}", new = new_part.yellow())?;
+                          }
+                        },
                         diff::Result::Left(old_part) => {
+                          difference_started = is_hash;
                           write!(oldacc, "{old}", old = old_part.red())?;
                         },
                         diff::Result::Right(new_part) => {
+                          difference_started = is_hash;
                           write!(newacc, "{new}", new = new_part.green())?;
-                        },
-
-                        diff::Result::Both(old_part, new_part) => {
-                          write!(oldacc, "{old}", old = old_part.yellow())?;
-                          write!(newacc, "{new}", new = new_part.yellow())?;
                         },
                       }
                     }
                   },
-
                   (old_comp, new_comp) => {
                     match old_comp {
                       Ok(old_comp) => {
-                        write!(oldacc, "{old}", old = old_comp.yellow())?;
+                        write!(oldacc, "{old}", old = old_comp.red())?;
                       },
                       Err(old_comp) => write!(oldacc, "{old_comp}")?,
                     }
 
                     match new_comp {
                       Ok(new_comp) => {
-                        write!(newacc, "{new}", new = new_comp.yellow())?;
+                        write!(newacc, "{new}", new = new_comp.green())?;
                       },
                       Err(new_comp) => write!(newacc, "{new_comp}")?,
                     }
                   },
                 }
               },
+            }
+          }
+          if last_same {
+            if let Some(Ok(last)) = last {
+              write!(oldacc, "{old}", old = last.yellow())?;
+              write!(newacc, "{new}", new = last.yellow())?;
             }
           }
         },

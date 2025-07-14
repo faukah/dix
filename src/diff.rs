@@ -77,18 +77,22 @@ impl PartialOrd for DiffStatus {
 
 impl cmp::Ord for DiffStatus {
   fn cmp(&self, other: &Self) -> cmp::Ordering {
-    #[expect(unreachable_patterns)]
+    use DiffStatus::{
+      Added,
+      Changed,
+      Removed,
+    };
+    #[expect(clippy::match_same_arms)]
     match (*self, *other) {
-      (Self::Changed(_), Self::Changed(_)) => cmp::Ordering::Equal,
-      (Self::Changed(_), _) => cmp::Ordering::Less,
-      (_, Self::Changed(_)) => cmp::Ordering::Greater,
+      (Changed(_), Changed(_)) => cmp::Ordering::Equal,
+      (Added, Added) => cmp::Ordering::Equal,
+      (Removed, Removed) => cmp::Ordering::Equal,
 
-      (Self::Added, Self::Added) => cmp::Ordering::Equal,
-      (Self::Added, _) => cmp::Ordering::Less,
+      (Changed(_), _) => cmp::Ordering::Less,
+      (_, Changed(_)) => cmp::Ordering::Greater,
 
-      (Self::Removed, Self::Removed) => cmp::Ordering::Equal,
-      (Self::Removed, _) => cmp::Ordering::Greater,
-      (_, Self::Removed) => cmp::Ordering::Less,
+      (Added, Removed) => cmp::Ordering::Less,
+      (Removed, Added) => cmp::Ordering::Greater,
     }
   }
 }

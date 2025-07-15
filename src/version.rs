@@ -140,9 +140,7 @@ mod tests {
       [
         VersionComponent("132"),
         VersionComponent("1"),
-        VersionComponent("2"),
-        VersionComponent("test"),
-        VersionComponent("234"),
+        VersionComponent("2test234"),
         VersionComponent("1"),
         VersionComponent("man")
       ]

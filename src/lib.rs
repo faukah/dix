@@ -78,7 +78,7 @@ impl StorePath {
     assert_eq!(&path[43..44], "-");
     let path = &path[44..];
 
-    log::debug!("stripped path: {path}");
+    log::trace!("stripped path: {path}");
 
     let captures = STORE_PATH_REGEX.captures(path).ok_or_else(|| {
       anyhow!("path '{path}' does not match expected Nix store format")

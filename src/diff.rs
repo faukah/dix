@@ -160,11 +160,6 @@ pub fn write_paths_diffln(
     })?
     .map(|(_, path)| path);
 
-  log::info!(
-    "found {count}+ packages in old closure",
-    count = paths_old.size_hint().0,
-  );
-
   let paths_new = connection
     .query_dependents(path_new)
     .with_context(|| {
@@ -194,11 +189,6 @@ pub fn write_paths_diffln(
       )
     })?
     .map(|(_, path)| path);
-
-  log::info!(
-    "found {count}+ packages in new closure",
-    count = paths_new.size_hint().0,
-  );
 
   writeln!(
     writer,
@@ -316,8 +306,8 @@ fn write_packages_diffln(
   for path in paths_old {
     match path.parse_name_and_version() {
       Ok((name, version)) => {
-        log::debug!("parsed name: {name}");
-        log::debug!("parsed version: {version:?}");
+        log::trace!("parsed name: {name}");
+        log::trace!("parsed version: {version:?}");
 
         paths
           .entry(name.into())
@@ -335,8 +325,8 @@ fn write_packages_diffln(
   for path in paths_new {
     match path.parse_name_and_version() {
       Ok((name, version)) => {
-        log::debug!("parsed name: {name}");
-        log::debug!("parsed version: {version:?}");
+        log::trace!("parsed name: {name}");
+        log::trace!("parsed version: {version:?}");
 
         paths
           .entry(name.into())

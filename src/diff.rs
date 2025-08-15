@@ -36,6 +36,10 @@ use crate::{
   StorePath,
   Version,
   store,
+  version::{
+    VersionPart,
+    VersionSeparator,
+  },
 };
 
 #[derive(Debug, Default)]
@@ -460,8 +464,10 @@ fn write_packages_diffln(
 
           for old_comp in old_version {
             match old_comp {
-              Ok(old_comp) => write!(oldacc, "{old}", old = old_comp.red())?,
-              Err(ignored) => write!(oldacc, "{ignored}")?,
+              VersionPart(old_comp) => {
+                write!(oldacc, "{old}", old = old_comp.red())?;
+              },
+              VersionSeparator(ignored) => write!(oldacc, "{ignored}")?,
             }
           }
         },
@@ -476,8 +482,10 @@ fn write_packages_diffln(
 
           for new_comp in new_version {
             match new_comp {
-              Ok(new_comp) => write!(newacc, "{new}", new = new_comp.green())?,
-              Err(ignored) => write!(newacc, "{ignored}")?,
+              VersionPart(new_comp) => {
+                write!(newacc, "{new}", new = new_comp.green())?;
+              },
+              VersionSeparator(ignored) => write!(newacc, "{ignored}")?,
             }
           }
         },
@@ -503,11 +511,12 @@ fn write_packages_diffln(
           let mut old_version: Vec<_> = old_version.into_iter().collect();
           let mut new_version: Vec<_> = new_version.into_iter().collect();
 
-          let last_same = old_version.last() == new_version.last();
-          let last = (last_same).then(|| {
+          let mut common_suffix = Vec::new();
+
+          while old_version.last() == new_version.last() {
             old_version.pop();
-            new_version.pop().unwrap()
-          });
+            common_suffix.push(new_version.pop());
+          }
 
           for diff in Itertools::zip_longest(
             old_version.into_iter(),
@@ -516,10 +525,10 @@ fn write_packages_diffln(
             match diff {
               EitherOrBoth::Left(old_comp) => {
                 match old_comp {
-                  Ok(old_comp) => {
+                  VersionPart(old_comp) => {
                     write!(oldacc, "{old}", old = old_comp.red())?;
                   },
-                  Err(ignored) => {
+                  VersionSeparator(ignored) => {
                     write!(oldacc, "{ignored}")?;
                   },
                 }
@@ -527,10 +536,10 @@ fn write_packages_diffln(
 
               EitherOrBoth::Right(new_comp) => {
                 match new_comp {
-                  Ok(new_comp) => {
+                  VersionPart(new_comp) => {
                     write!(newacc, "{new}", new = new_comp.green())?;
                   },
-                  Err(ignored) => {
+                  VersionSeparator(ignored) => {
                     write!(newacc, "{ignored}")?;
                   },
                 }
@@ -538,7 +547,7 @@ fn write_packages_diffln(
 
               EitherOrBoth::Both(old_comp, new_comp) => {
                 match (old_comp, new_comp) {
-                  (Ok(old_comp), Ok(new_comp)) => {
+                  (VersionPart(old_comp), VersionPart(new_comp)) => {
                     let mut difference_started = false;
                     let is_hash = is_hash(&old_comp);
 
@@ -567,27 +576,38 @@ fn write_packages_diffln(
                   },
                   (old_comp, new_comp) => {
                     match old_comp {
-                      Ok(old_comp) => {
+                      VersionPart(old_comp) => {
                         write!(oldacc, "{old}", old = old_comp.red())?;
                       },
-                      Err(old_comp) => write!(oldacc, "{old_comp}")?,
+                      VersionSeparator(old_comp) => {
+                        write!(oldacc, "{old_comp}")?;
+                      },
                     }
 
                     match new_comp {
-                      Ok(new_comp) => {
+                      VersionPart(new_comp) => {
                         write!(newacc, "{new}", new = new_comp.green())?;
                       },
-                      Err(new_comp) => write!(newacc, "{new_comp}")?,
+                      VersionSeparator(new_comp) => {
+                        write!(newacc, "{new_comp}")?;
+                      },
                     }
                   },
                 }
               },
             }
           }
-          if last_same {
-            if let Some(Ok(last)) = last {
-              write!(oldacc, "{old}", old = last.yellow())?;
-              write!(newacc, "{new}", new = last.yellow())?;
+
+          for comp in common_suffix.into_iter().rev().flatten() {
+            match comp {
+              VersionPart(comp) => {
+                write!(oldacc, "{old}", old = comp.yellow())?;
+                write!(newacc, "{new}", new = comp.yellow())?;
+              },
+              VersionSeparator(ignored) => {
+                write!(oldacc, "{ignored}")?;
+                write!(newacc, "{ignored}")?;
+              },
             }
           }
         },

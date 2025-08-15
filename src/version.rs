@@ -84,7 +84,7 @@ impl cmp::Ord for VersionComponent<'_> {
   }
 }
 
-/// Yields [`VertionComponent`] from a version string.
+/// Yields [`VersionComponent`] from a version string.
 #[derive(Deref, DerefMut, From)]
 pub struct VersionComponentIter<'a>(&'a str);
 

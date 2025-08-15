@@ -1,5 +1,7 @@
 use std::cmp;
 
+pub use Err as VersionSeparator;
+pub use Ok as VersionPart;
 use derive_more::{
   Deref,
   DerefMut,

@@ -29,7 +29,6 @@ use itertools::{
   EitherOrBoth,
   Itertools,
 };
-use log::warn;
 use size::Size;
 use unicode_width::UnicodeWidthStr as _;
 use yansi::{
@@ -39,8 +38,7 @@ use yansi::{
 
 use crate::{
   store, version::{
-    VersionComponent, VersionComponentIter, VersionPart, VersionSeparator
-  }, StorePath, Version
+    VersionComponent, VersionComponentIter, VersionPiece}, StorePath, Version
 };
 
 #[derive(Debug, Default)]
@@ -255,8 +253,8 @@ fn match_version_lists<'a>(
   // TODO: maybe just use a double loop and be done with it
   // compute the complete distance matrix where distance[i][j] := edit distance from from[i]
   for ((i, vfrom), (j, vto)) in itertools::iproduct!(from.iter().enumerate(), to.iter().enumerate()) {
-    let components_from:Vec<VersionComponent> = VersionComponentIter::new(vfrom).filter_map(Result::ok).collect();
-    let components_to: Vec<VersionComponent> = VersionComponentIter::new(vto).filter_map(Result::ok).collect();
+    let components_from:Vec<VersionComponent> = VersionComponentIter::new(vfrom).filter_map(VersionPiece::only_component).collect();
+    let components_to: Vec<VersionComponent> = VersionComponentIter::new(vto).filter_map(VersionPiece::only_component).collect();
     distances[i][j] = levenshtein(&components_from, &components_to);
   }
 
@@ -538,10 +536,10 @@ fn write_packages_diffln(
 
           for old_comp in old_version {
             match old_comp {
-              VersionPart(old_comp) => {
+              VersionPiece::Component(old_comp) => {
                 write!(oldacc, "{old}", old = old_comp.red())?;
               },
-              VersionSeparator(ignored) => write!(oldacc, "{ignored}")?,
+              VersionPiece::Seperator(ignored) => write!(oldacc, "{ignored}")?,
             }
           }
         },
@@ -556,10 +554,10 @@ fn write_packages_diffln(
 
           for new_comp in new_version {
             match new_comp {
-              VersionPart(new_comp) => {
+              VersionPiece::Component(new_comp) => {
                 write!(newacc, "{new}", new = new_comp.green())?;
               },
-              VersionSeparator(ignored) => write!(newacc, "{ignored}")?,
+              VersionPiece::Seperator(ignored) => write!(newacc, "{ignored}")?,
             }
           }
         },
@@ -599,10 +597,10 @@ fn write_packages_diffln(
             match diff {
               EitherOrBoth::Left(old_comp) => {
                 match old_comp {
-                  VersionPart(old_comp) => {
+                  VersionPiece::Component(old_comp) => {
                     write!(oldacc, "{old}", old = old_comp.red())?;
                   },
-                  VersionSeparator(ignored) => {
+                  VersionPiece::Seperator(ignored) => {
                     write!(oldacc, "{ignored}")?;
                   },
                 }
@@ -610,10 +608,10 @@ fn write_packages_diffln(
 
               EitherOrBoth::Right(new_comp) => {
                 match new_comp {
-                  VersionPart(new_comp) => {
+                  VersionPiece::Component(new_comp) => {
                     write!(newacc, "{new}", new = new_comp.green())?;
                   },
-                  VersionSeparator(ignored) => {
+                  VersionPiece::Seperator(ignored) => {
                     write!(newacc, "{ignored}")?;
                   },
                 }
@@ -621,7 +619,10 @@ fn write_packages_diffln(
 
               EitherOrBoth::Both(old_comp, new_comp) => {
                 match (old_comp, new_comp) {
-                  (VersionPart(old_comp), VersionPart(new_comp)) => {
+                  (
+                    VersionPiece::Component(old_comp),
+                    VersionPiece::Component(new_comp),
+                  ) => {
                     let mut difference_started = false;
                     let is_hash = is_hash(&old_comp);
 
@@ -650,19 +651,19 @@ fn write_packages_diffln(
                   },
                   (old_comp, new_comp) => {
                     match old_comp {
-                      VersionPart(old_comp) => {
+                      VersionPiece::Component(old_comp) => {
                         write!(oldacc, "{old}", old = old_comp.red())?;
                       },
-                      VersionSeparator(old_comp) => {
+                      VersionPiece::Seperator(old_comp) => {
                         write!(oldacc, "{old_comp}")?;
                       },
                     }
 
                     match new_comp {
-                      VersionPart(new_comp) => {
+                      VersionPiece::Component(new_comp) => {
                         write!(newacc, "{new}", new = new_comp.green())?;
                       },
-                      VersionSeparator(new_comp) => {
+                      VersionPiece::Seperator(new_comp) => {
                         write!(newacc, "{new_comp}")?;
                       },
                     }
@@ -674,11 +675,11 @@ fn write_packages_diffln(
 
           for comp in common_suffix.into_iter().rev().flatten() {
             match comp {
-              VersionPart(comp) => {
+              VersionPiece::Component(comp) => {
                 write!(oldacc, "{old}", old = comp.yellow())?;
                 write!(newacc, "{new}", new = comp.yellow())?;
               },
-              VersionSeparator(ignored) => {
+              VersionPiece::Seperator(ignored) => {
                 write!(oldacc, "{ignored}")?;
                 write!(newacc, "{ignored}")?;
               },
@@ -775,12 +776,25 @@ fn is_hash(input: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{diff::levenshtein, version::{VersionComponent, VersionComponentIter}};
+  use crate::{
+    diff::levenshtein,
+    version::{
+      VersionComponent,
+      VersionComponentIter,
+      VersionPiece,
+    },
+  };
 
   #[test]
   fn basic_component_edit_dist() {
-    let from: Vec<VersionComponent> = VersionComponentIter::new("foo-123.0-man-pages").filter_map(Result::ok).collect();
-    let to: Vec<VersionComponent> = VersionComponentIter::new("foo-123.4.12-man-pages").filter_map(Result::ok).collect();    
+    let from: Vec<VersionComponent> =
+      VersionComponentIter::new("foo-123.0-man-pages")
+        .filter_map(VersionPiece::only_component)
+        .collect();
+    let to: Vec<VersionComponent> =
+      VersionComponentIter::new("foo-123.4.12-man-pages")
+        .filter_map(VersionPiece::only_component)
+        .collect();
     let dist = levenshtein(&from, &to);
     assert_eq!(dist, 2);
   }

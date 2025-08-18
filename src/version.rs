@@ -88,6 +88,12 @@ impl cmp::Ord for VersionComponent<'_> {
 #[derive(Deref, DerefMut, From)]
 pub struct VersionComponentIter<'a>(&'a str);
 
+impl<'a> VersionComponentIter<'a> {
+  pub fn new(version: &'a str) -> Self {
+    Self(version)
+  }
+}
+
 impl<'a> Iterator for VersionComponentIter<'a> {
   type Item = Result<VersionComponent<'a>, &'a str>;
 

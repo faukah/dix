@@ -1,5 +1,8 @@
 use std::{
-  cmp,
+  cmp::{
+    self,
+    min,
+  },
   collections::{
     HashMap,
     HashSet,
@@ -9,6 +12,7 @@ use std::{
     Write as _,
   },
   fs,
+  mem::swap,
   path::{
     Path,
     PathBuf,
@@ -25,6 +29,7 @@ use itertools::{
   EitherOrBoth,
   Itertools,
 };
+use log::warn;
 use size::Size;
 use unicode_width::UnicodeWidthStr as _;
 use yansi::{
@@ -33,13 +38,9 @@ use yansi::{
 };
 
 use crate::{
-  StorePath,
-  Version,
-  store,
-  version::{
-    VersionPart,
-    VersionSeparator,
-  },
+  store, version::{
+    VersionComponent, VersionComponentIter, VersionPart, VersionSeparator
+  }, StorePath, Version
 };
 
 #[derive(Debug, Default)]
@@ -220,6 +221,92 @@ pub fn write_paths_diffln(
   )?)
 }
 
+// computes the levensthein distance between two strings using
+// dynamic programming
+fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
+  let (height, width) = (from.len(), to.len());
+  let mut old = (0..=width).collect::<Vec<_>>();
+  let mut new = vec![0; width + 1];
+  for i in 1..=height {
+    new[0] = i;
+    for j in 1..=width {
+      new[j] = min(
+        old[j] + 1,
+        min(
+              new[j - 1] - 1,
+                old[j - 1] + usize::from(from[i - 1] == to[j - 1])
+            ));
+    }
+    swap(&mut old, &mut new);
+  }
+  new[width]
+}
+/// Takes two lists of versions and tries to match
+/// them by first computing the edit distance for all pairs and using
+/// the ordering defined on versions as tiebreaker
+fn match_version_lists<'a>(
+  from: &'a [Version],
+  to: &'a [Version],
+) -> Vec<EitherOrBoth<&'a Version>> {
+  // we store all remaining versions we have not matched yet, keeping
+  // the indices to preserve duplicates
+  let mut to_remaining = (0..to.len()).collect::<HashSet<usize>>();
+  let mut distances: Vec<Vec<usize>> = vec![vec![0; to.len()]; from.len()];
+  // TODO: maybe just use a double loop and be done with it
+  // compute the complete distance matrix where distance[i][j] := edit distance from from[i]
+  for ((i, vfrom), (j, vto)) in itertools::iproduct!(from.iter().enumerate(), to.iter().enumerate()) {
+    let components_from_res: Result<Vec<VersionComponent>, &str> = VersionComponentIter::new(vfrom).collect();
+    let components_to_res: Result<Vec<VersionComponent>, &str> = VersionComponentIter::new(vto).collect();
+    match (components_from_res, components_to_res) {
+      (Ok(components_from), Ok(components_to)) =>  {
+      distances[i][j] = levenshtein(&components_from, &components_to);
+      },
+      (Err(err), _) => {
+        warn!("Unable to convert version {vfrom} to components: {err:?}");
+        distances[i][j] = usize::MAX;
+      },
+      (_, Err(err)) => {
+        warn!("Unable to convert version {vto} to components: {err:?}");
+        distances[i][j] = usize::MAX;
+      },
+    }
+  }
+
+  let mut from_remaining = Vec::new();
+
+  let mut pairings = Vec::new();
+  for i in 0..from.len() {
+    let jmin = distances[i]
+      .iter()
+      .enumerate()
+      .filter(|&(j, _)| to_remaining.contains(&j))
+      .min_set_by_key(|&(_, &dist)| dist)
+      .into_iter()
+      .max_by(|&(left, _), &(right, _)| to[left].cmp(&to[right]))
+      .map(|(j, _)| j);
+
+    match jmin {
+      Some(j) => {
+        pairings.push(EitherOrBoth::Both(&from[i], &to[j]));
+        to_remaining.remove(&j);
+      },
+      None => from_remaining.push(&from[i]),
+    }
+  }
+  let mut to_remaining = to_remaining
+    .into_iter()
+    .map(|j| &to[j])
+    .collect::<Vec<&Version>>();
+  from_remaining.sort_unstable();
+  to_remaining.sort_unstable();
+  pairings.extend(Itertools::zip_longest(
+    from_remaining.into_iter(),
+    to_remaining,
+  ));
+
+  pairings
+}
+
 /// Takes a list of versions which may contain duplicates and deduplicates it by
 /// replacing multiple occurrences of an element with the same element plus the
 /// amount it occurs.
@@ -364,8 +451,7 @@ fn write_packages_diffln(
           let mut saw_upgrade = false;
           let mut saw_downgrade = false;
 
-          for diff in
-            Itertools::zip_longest(versions.old.iter(), versions.new.iter())
+          for diff in match_version_lists(&versions.old, &versions.new)
           {
             match diff {
               EitherOrBoth::Left(_) => saw_downgrade = true,
@@ -451,7 +537,7 @@ fn write_packages_diffln(
     let mut newacc = String::new();
     let mut newwrote = false;
 
-    for diff in Itertools::zip_longest(versions.old.iter(), versions.new.iter())
+    for diff in match_version_lists(&versions.old, &versions.new)
     {
       match diff {
         EitherOrBoth::Left(old_version) => {

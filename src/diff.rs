@@ -233,7 +233,7 @@ fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
       new[j] = min(
         old[j] + 1,
         min(
-              new[j - 1] - 1,
+              new[j - 1] + 1,
                 old[j - 1] + usize::from(from[i - 1] == to[j - 1])
             ));
     }

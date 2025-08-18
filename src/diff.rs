@@ -37,8 +37,14 @@ use yansi::{
 };
 
 use crate::{
-  store, version::{
-    VersionComponent, VersionComponentIter, VersionPiece}, StorePath, Version
+  StorePath,
+  Version,
+  store,
+  version::{
+    VersionComponent,
+    VersionComponentIter,
+    VersionPiece,
+  },
 };
 
 #[derive(Debug, Default)]
@@ -219,72 +225,94 @@ pub fn write_paths_diffln(
   )?)
 }
 
-// computes the levensthein distance between two strings using
-// dynamic programming
+// Computes the levensthein distance between two strings using
+// dynamic programming.
 fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
-  let (height, width) = (from.len(), to.len());
-  let mut old = (0..=width).collect::<Vec<_>>();
-  let mut new = vec![0; width + 1];
-  for i in 1..=height {
-    new[0] = i;
-    for j in 1..=width {
-      new[j] = min(
-        old[j] + 1,
-        min(
-              new[j - 1] + 1,
-                old[j - 1] + usize::from(from[i - 1] == to[j - 1])
-            ));
-    }
-    swap(&mut old, &mut new);
+  let (from_len, to_len) = (from.len(), to.len());
+  if from_len == 0 {
+    return to_len;
   }
-  new[width]
+  if to_len == 0 {
+    return from_len;
+  }
+
+  let mut prev_row: Vec<_> = (0..=to_len).collect();
+  let mut curr_row = vec![0; to_len + 1];
+
+  for i in 1..=from_len {
+    curr_row[0] = i;
+    for j in 1..=to_len {
+      let subcost = usize::from(from[i - 1] != to[j - 1]);
+      curr_row[j] = min(
+        min(curr_row[j - 1] + 1, prev_row[j] + 1),
+        prev_row[j - 1] + subcost,
+      );
+    }
+    swap(&mut prev_row, &mut curr_row);
+  }
+  prev_row[to_len]
 }
+
 /// Takes two lists of versions and tries to match
 /// them by first computing the edit distance for all pairs and using
-/// the ordering defined on versions as tiebreaker
+/// the ordering defined on versions as tiebreaker.
 fn match_version_lists<'a>(
   from: &'a [Version],
   to: &'a [Version],
 ) -> Vec<EitherOrBoth<&'a Version>> {
-  // we store all remaining versions we have not matched yet, keeping
-  // the indices to preserve duplicates
-  let mut to_remaining = (0..to.len()).collect::<HashSet<usize>>();
   let mut distances: Vec<Vec<usize>> = vec![vec![0; to.len()]; from.len()];
-  // TODO: maybe just use a double loop and be done with it
-  // compute the complete distance matrix where distance[i][j] := edit distance from from[i]
-  for ((i, vfrom), (j, vto)) in itertools::iproduct!(from.iter().enumerate(), to.iter().enumerate()) {
-    let components_from:Vec<VersionComponent> = VersionComponentIter::new(vfrom).filter_map(VersionPiece::only_component).collect();
-    let components_to: Vec<VersionComponent> = VersionComponentIter::new(vto).filter_map(VersionPiece::only_component).collect();
-    distances[i][j] = levenshtein(&components_from, &components_to);
+  let mut from_remaining = Vec::new();
+  let mut pairings = Vec::new();
+  // Store all remaining versions we have not matched yet, keeping
+  // the indices to preserve duplicates.
+  let mut to_remaining_indices = (0..to.len()).collect::<HashSet<usize>>();
+
+  // Compute the complete distance matrix where distance[i][j] := edit distance
+  // from from[i] to to[j].
+  for (i, from_version) in from.iter().enumerate() {
+    for (j, to_version) in to.iter().enumerate() {
+      let components_from: Vec<VersionComponent> =
+        VersionComponentIter::new(from_version)
+          .filter_map(VersionPiece::get_components)
+          .collect();
+      let components_to: Vec<VersionComponent> =
+        VersionComponentIter::new(to_version)
+          .filter_map(VersionPiece::get_components)
+          .collect();
+      distances[i][j] = levenshtein(&components_from, &components_to);
+    }
   }
 
-  let mut from_remaining = Vec::new();
-
-  let mut pairings = Vec::new();
   for i in 0..from.len() {
-    let jmin = distances[i]
+    // Gets the element with the smallest edit distance in the `to` Vector.
+    let min_distance = distances[i]
       .iter()
       .enumerate()
-      .filter(|&(j, _)| to_remaining.contains(&j))
+      // Filter out all elements already used in the final vector.
+      .filter(|&(j, _)| to_remaining_indices.contains(&j))
+      // Get the elements with the smallest edit distance to our current element, distances[i].
       .min_set_by_key(|&(_, &dist)| dist)
       .into_iter()
+      // For elements with the same edit distance, do a lexicographical comparision to pick one.
       .max_by(|&(left, _), &(right, _)| to[left].cmp(&to[right]))
       .map(|(j, _)| j);
 
-    match jmin {
-      Some(j) => {
-        pairings.push(EitherOrBoth::Both(&from[i], &to[j]));
-        to_remaining.remove(&j);
-      },
-      None => from_remaining.push(&from[i]),
+    if let Some(j) = min_distance {
+      pairings.push(EitherOrBoth::Both(&from[i], &to[j]));
+      to_remaining_indices.remove(&j);
+    } else {
+      from_remaining.push(&from[i]);
     }
   }
-  let mut to_remaining = to_remaining
+  // Get the elements left over.
+  let mut to_remaining = to_remaining_indices
     .into_iter()
     .map(|j| &to[j])
     .collect::<Vec<&Version>>();
+
   from_remaining.sort_unstable();
   to_remaining.sort_unstable();
+
   pairings.extend(Itertools::zip_longest(
     from_remaining.into_iter(),
     to_remaining,
@@ -437,8 +465,7 @@ fn write_packages_diffln(
           let mut saw_upgrade = false;
           let mut saw_downgrade = false;
 
-          for diff in match_version_lists(&versions.old, &versions.new)
-          {
+          for diff in match_version_lists(&versions.old, &versions.new) {
             match diff {
               EitherOrBoth::Left(_) => saw_downgrade = true,
               EitherOrBoth::Right(_) => saw_upgrade = true,
@@ -523,8 +550,7 @@ fn write_packages_diffln(
     let mut newacc = String::new();
     let mut newwrote = false;
 
-    for diff in match_version_lists(&versions.old, &versions.new)
-    {
+    for diff in match_version_lists(&versions.old, &versions.new) {
       match diff {
         EitherOrBoth::Left(old_version) => {
           if oldwrote {
@@ -777,7 +803,10 @@ fn is_hash(input: &str) -> bool {
 #[cfg(test)]
 mod tests {
   use crate::{
-    diff::levenshtein,
+    diff::{
+      levenshtein,
+      match_version_lists,
+    },
     version::{
       VersionComponent,
       VersionComponentIter,
@@ -789,13 +818,83 @@ mod tests {
   fn basic_component_edit_dist() {
     let from: Vec<VersionComponent> =
       VersionComponentIter::new("foo-123.0-man-pages")
-        .filter_map(VersionPiece::only_component)
+        .filter_map(VersionPiece::get_components)
         .collect();
     let to: Vec<VersionComponent> =
       VersionComponentIter::new("foo-123.4.12-man-pages")
-        .filter_map(VersionPiece::only_component)
+        .filter_map(VersionPiece::get_components)
         .collect();
     let dist = levenshtein(&from, &to);
     assert_eq!(dist, 2);
+  }
+
+  #[test]
+  fn levenshtein_distance_tests() {
+    assert_eq!(
+      levenshtein(
+        &"kitten".chars().collect::<Vec<_>>(),
+        &"sitting".chars().collect::<Vec<_>>()
+      ),
+      3
+    );
+
+    assert_eq!(
+      levenshtein(
+        &"".chars().collect::<Vec<_>>(),
+        &"hello".chars().collect::<Vec<_>>()
+      ),
+      5
+    );
+
+    assert_eq!(
+      levenshtein(
+        &"abcd".chars().collect::<Vec<_>>(),
+        &"dcba".chars().collect::<Vec<_>>()
+      ),
+      4
+    );
+
+    assert_eq!(
+      levenshtein(
+        &"12345".chars().collect::<Vec<_>>(),
+        &"12345".chars().collect::<Vec<_>>()
+      ),
+      0
+    );
+
+    assert_eq!(
+      levenshtein(
+        &"distance".chars().collect::<Vec<_>>(),
+        &"difference".chars().collect::<Vec<_>>()
+      ),
+      5
+    );
+  }
+
+  #[test]
+  fn match_version_lists_test() {
+    use crate::version::Version;
+    let version_list_a = [
+      Version("5.116.0".to_owned()),
+      Version("5.116.0-bin".to_owned()),
+      Version("6.16.0".to_owned()),
+    ];
+    let version_list_b = [Version("6.17.0".to_owned())];
+
+    let matched = match_version_lists(&version_list_a, &version_list_b);
+
+    for version in matched {
+      match version {
+        itertools::EitherOrBoth::Both(left, right) => {
+          println!("{left} {right}");
+        },
+        itertools::EitherOrBoth::Left(left) => {
+          println!("{left}");
+        },
+        itertools::EitherOrBoth::Right(right) => {
+          println!("{right}");
+        },
+      }
+    }
   }
 }

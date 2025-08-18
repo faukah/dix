@@ -8,7 +8,7 @@ use derive_more::{
 };
 
 #[derive(Deref, DerefMut, Display, Debug, Clone, PartialEq, Eq, From)]
-pub struct Version(String);
+pub struct Version(pub String);
 
 impl PartialOrd for Version {
   fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -19,9 +19,9 @@ impl PartialOrd for Version {
 impl cmp::Ord for Version {
   fn cmp(&self, that: &Self) -> cmp::Ordering {
     let this = VersionComponentIter::from(&***self)
-      .filter_map(VersionPiece::only_component);
+      .filter_map(VersionPiece::get_components);
     let that = VersionComponentIter::from(&***that)
-      .filter_map(VersionPiece::only_component);
+      .filter_map(VersionPiece::get_components);
 
     this.cmp(that)
   }
@@ -92,7 +92,7 @@ pub enum VersionPiece<'a> {
 }
 
 impl<'a> VersionPiece<'a> {
-  pub const fn only_component(self) -> Option<VersionComponent<'a>> {
+  pub const fn get_components(self) -> Option<VersionComponent<'a>> {
     match self {
       VersionPiece::Component(version_component) => Some(version_component),
       VersionPiece::Seperator(_) => None,
@@ -152,6 +152,7 @@ mod tests {
     VersionComponent,
     VersionComponentIter,
   };
+  use crate::version::VersionPiece;
 
   #[test]
   fn version_component_iter() {
@@ -159,7 +160,7 @@ mod tests {
 
     assert_eq!(
       VersionComponentIter::from(version)
-        .filter_map(VersionPiece::only_component)
+        .filter_map(VersionPiece::get_components)
         .collect::<Vec<_>>(),
       [
         VersionComponent("132"),

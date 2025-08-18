@@ -255,21 +255,9 @@ fn match_version_lists<'a>(
   // TODO: maybe just use a double loop and be done with it
   // compute the complete distance matrix where distance[i][j] := edit distance from from[i]
   for ((i, vfrom), (j, vto)) in itertools::iproduct!(from.iter().enumerate(), to.iter().enumerate()) {
-    let components_from_res: Result<Vec<VersionComponent>, &str> = VersionComponentIter::new(vfrom).collect();
-    let components_to_res: Result<Vec<VersionComponent>, &str> = VersionComponentIter::new(vto).collect();
-    match (components_from_res, components_to_res) {
-      (Ok(components_from), Ok(components_to)) =>  {
-      distances[i][j] = levenshtein(&components_from, &components_to);
-      },
-      (Err(err), _) => {
-        warn!("Unable to convert version {vfrom} to components: {err:?}");
-        distances[i][j] = usize::MAX;
-      },
-      (_, Err(err)) => {
-        warn!("Unable to convert version {vto} to components: {err:?}");
-        distances[i][j] = usize::MAX;
-      },
-    }
+    let components_from:Vec<VersionComponent> = VersionComponentIter::new(vfrom).filter_map(Result::ok).collect();
+    let components_to: Vec<VersionComponent> = VersionComponentIter::new(vto).filter_map(Result::ok).collect();
+    distances[i][j] = levenshtein(&components_from, &components_to);
   }
 
   let mut from_remaining = Vec::new();
@@ -783,4 +771,17 @@ fn dissimilar_score(input: &str) -> f64 {
 
 fn is_hash(input: &str) -> bool {
   dissimilar_score(input) < 70.0
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{diff::levenshtein, version::{VersionComponent, VersionComponentIter}};
+
+  #[test]
+  fn basic_component_edit_dist() {
+    let from: Vec<VersionComponent> = VersionComponentIter::new("foo-123.0-man-pages").filter_map(Result::ok).collect();
+    let to: Vec<VersionComponent> = VersionComponentIter::new("foo-123.4.12-man-pages").filter_map(Result::ok).collect();    
+    let dist = levenshtein(&from, &to);
+    assert_eq!(dist, 2);
+  }
 }

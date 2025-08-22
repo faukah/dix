@@ -29,6 +29,10 @@ use itertools::{
   EitherOrBoth,
   Itertools,
 };
+use pathfinding::{
+  kuhn_munkres,
+  matrix::Matrix,
+};
 use size::Size;
 use unicode_width::UnicodeWidthStr as _;
 use yansi::{
@@ -256,16 +260,23 @@ fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
 /// Takes two lists of versions and tries to match
 /// them by first computing the edit distance for all pairs and using
 /// the ordering defined on versions as tiebreaker.
+/// TODO: we might want to implement the hungarian algorithm ourselves
 fn match_version_lists<'a>(
-  from: &'a [Version],
-  to: &'a [Version],
+  mut from: &'a [Version],
+  mut to: &'a [Version],
 ) -> Vec<EitherOrBoth<&'a Version>> {
-  let mut distances: Vec<Vec<usize>> = vec![vec![0; to.len()]; from.len()];
-  let mut from_remaining = Vec::new();
-  let mut pairings = Vec::new();
-  // Store all remaining versions we have not matched yet, keeping
-  // the indices to preserve duplicates.
-  let mut to_remaining_indices = (0..to.len()).collect::<HashSet<usize>>();
+  // the hungarian algorithm for finding
+  // matchings requires #rows <= #columns
+  // Since the edit distance is symmetric,
+  // we can just swap the values
+  let swapped = if from.len() > to.len() {
+    (to, from) = (from, to);
+    true
+  } else {
+    false
+  };
+
+  let mut distances = Matrix::new(from.len(), to.len(), 0_i32);
 
   // Compute the complete distance matrix where distance[i][j] := edit distance
   // from from[i] to to[j].
@@ -279,44 +290,28 @@ fn match_version_lists<'a>(
         VersionComponentIter::new(to_version)
           .filter_map(VersionPiece::get_components)
           .collect();
-      distances[i][j] = levenshtein(&components_from, &components_to);
+      distances[(i, j)] = levenshtein(&components_from, &components_to) as i32;
     }
   }
+  let (_cost, matchings) =
+    kuhn_munkres::kuhn_munkres_min::<i32, Matrix<i32>>(&distances);
 
-  for i in 0..from.len() {
-    // Gets the element with the smallest edit distance in the `to` Vector.
-    let min_distance = distances[i]
-      .iter()
-      .enumerate()
-      // Filter out all elements already used in the final vector.
-      .filter(|&(j, _)| to_remaining_indices.contains(&j))
-      // Get the elements with the smallest edit distance to our current element, distances[i].
-      .min_set_by_key(|&(_, &dist)| dist)
-      .into_iter()
-      // For elements with the same edit distance, do a lexicographical comparision to pick one.
-      .max_by(|&(left, _), &(right, _)| to[left].cmp(&to[right]))
-      .map(|(j, _)| j);
-
-    if let Some(j) = min_distance {
-      pairings.push(EitherOrBoth::Both(&from[i], &to[j]));
-      to_remaining_indices.remove(&j);
-    } else {
-      from_remaining.push(&from[i]);
-    }
+  let mut remaining = (0..to.len()).collect::<HashSet<usize>>();
+  let mut pairings = Vec::<EitherOrBoth<&Version>>::new();
+  for (i, j) in matchings.into_iter().enumerate() {
+    pairings.push(EitherOrBoth::Both(&from[i], &to[j]));
+    remaining.remove(&j);
   }
-  // Get the elements left over.
-  let mut to_remaining = to_remaining_indices
-    .into_iter()
-    .map(|j| &to[j])
-    .collect::<Vec<&Version>>();
+  // some vertices in two might still not be matched so add those as well at the
+  // end
+  let mut remaining = remaining.iter().map(|&j| &to[j]).collect::<Vec<_>>();
+  remaining.sort_unstable();
+  pairings.extend(remaining.into_iter().map(EitherOrBoth::Right));
 
-  from_remaining.sort_unstable();
-  to_remaining.sort_unstable();
-
-  pairings.extend(Itertools::zip_longest(
-    from_remaining.into_iter(),
-    to_remaining,
-  ));
+  // swap everything back
+  if swapped {
+    pairings = pairings.into_iter().map(EitherOrBoth::flip).collect();
+  }
 
   pairings
 }

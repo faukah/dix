@@ -1,5 +1,8 @@
 use std::{
-  cmp,
+  cmp::{
+    self,
+    min,
+  },
   collections::{
     HashMap,
     HashSet,
@@ -9,6 +12,7 @@ use std::{
     Write as _,
   },
   fs,
+  mem::swap,
   path::{
     Path,
     PathBuf,
@@ -25,6 +29,10 @@ use itertools::{
   EitherOrBoth,
   Itertools,
 };
+use pathfinding::{
+  kuhn_munkres,
+  matrix::Matrix,
+};
 use size::Size;
 use unicode_width::UnicodeWidthStr as _;
 use yansi::{
@@ -37,8 +45,9 @@ use crate::{
   Version,
   store,
   version::{
-    VersionPart,
-    VersionSeparator,
+    VersionComponent,
+    VersionComponentIter,
+    VersionPiece,
   },
 };
 
@@ -220,6 +229,93 @@ pub fn write_paths_diffln(
   )?)
 }
 
+// Computes the levensthein distance between two strings using
+// dynamic programming.
+fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
+  let (from_len, to_len) = (from.len(), to.len());
+  if from_len == 0 {
+    return to_len;
+  }
+  if to_len == 0 {
+    return from_len;
+  }
+
+  let mut prev_row: Vec<_> = (0..=to_len).collect();
+  let mut curr_row = vec![0; to_len + 1];
+
+  for i in 1..=from_len {
+    curr_row[0] = i;
+    for j in 1..=to_len {
+      let subcost = usize::from(from[i - 1] != to[j - 1]);
+      curr_row[j] = min(
+        min(curr_row[j - 1] + 1, prev_row[j] + 1),
+        prev_row[j - 1] + subcost,
+      );
+    }
+    swap(&mut prev_row, &mut curr_row);
+  }
+  prev_row[to_len]
+}
+
+/// Takes two lists of versions and tries to match
+/// them by first computing the edit distance for all pairs and using
+/// the ordering defined on versions as tiebreaker.
+/// TODO: we might want to implement the hungarian algorithm ourselves
+fn match_version_lists<'a>(
+  mut from: &'a [Version],
+  mut to: &'a [Version],
+) -> Vec<EitherOrBoth<&'a Version>> {
+  // the hungarian algorithm for finding
+  // matchings requires #rows <= #columns
+  // Since the edit distance is symmetric,
+  // we can just swap the values
+  let swapped = if from.len() > to.len() {
+    (to, from) = (from, to);
+    true
+  } else {
+    false
+  };
+
+  let mut distances = Matrix::new(from.len(), to.len(), 0_i32);
+
+  // Compute the complete distance matrix where distance[i][j] := edit distance
+  // from from[i] to to[j].
+  for (i, from_version) in from.iter().enumerate() {
+    for (j, to_version) in to.iter().enumerate() {
+      let components_from: Vec<VersionComponent> =
+        VersionComponentIter::new(from_version)
+          .filter_map(VersionPiece::get_components)
+          .collect();
+      let components_to: Vec<VersionComponent> =
+        VersionComponentIter::new(to_version)
+          .filter_map(VersionPiece::get_components)
+          .collect();
+      distances[(i, j)] = levenshtein(&components_from, &components_to) as i32;
+    }
+  }
+  let (_cost, matchings) =
+    kuhn_munkres::kuhn_munkres_min::<i32, Matrix<i32>>(&distances);
+
+  let mut remaining = (0..to.len()).collect::<HashSet<usize>>();
+  let mut pairings = Vec::<EitherOrBoth<&Version>>::new();
+  for (i, j) in matchings.into_iter().enumerate() {
+    pairings.push(EitherOrBoth::Both(&from[i], &to[j]));
+    remaining.remove(&j);
+  }
+  // some vertices in two might still not be matched so add those as well at the
+  // end
+  let mut remaining = remaining.iter().map(|&j| &to[j]).collect::<Vec<_>>();
+  remaining.sort_unstable();
+  pairings.extend(remaining.into_iter().map(EitherOrBoth::Right));
+
+  // swap everything back
+  if swapped {
+    pairings = pairings.into_iter().map(EitherOrBoth::flip).collect();
+  }
+
+  pairings
+}
+
 /// Takes a list of versions which may contain duplicates and deduplicates it by
 /// replacing multiple occurrences of an element with the same element plus the
 /// amount it occurs.
@@ -364,9 +460,7 @@ fn write_packages_diffln(
           let mut saw_upgrade = false;
           let mut saw_downgrade = false;
 
-          for diff in
-            Itertools::zip_longest(versions.old.iter(), versions.new.iter())
-          {
+          for diff in match_version_lists(&versions.old, &versions.new) {
             match diff {
               EitherOrBoth::Left(_) => saw_downgrade = true,
               EitherOrBoth::Right(_) => saw_upgrade = true,
@@ -451,8 +545,7 @@ fn write_packages_diffln(
     let mut newacc = String::new();
     let mut newwrote = false;
 
-    for diff in Itertools::zip_longest(versions.old.iter(), versions.new.iter())
-    {
+    for diff in match_version_lists(&versions.old, &versions.new) {
       match diff {
         EitherOrBoth::Left(old_version) => {
           if oldwrote {
@@ -464,10 +557,10 @@ fn write_packages_diffln(
 
           for old_comp in old_version {
             match old_comp {
-              VersionPart(old_comp) => {
+              VersionPiece::Component(old_comp) => {
                 write!(oldacc, "{old}", old = old_comp.red())?;
               },
-              VersionSeparator(ignored) => write!(oldacc, "{ignored}")?,
+              VersionPiece::Seperator(ignored) => write!(oldacc, "{ignored}")?,
             }
           }
         },
@@ -482,10 +575,10 @@ fn write_packages_diffln(
 
           for new_comp in new_version {
             match new_comp {
-              VersionPart(new_comp) => {
+              VersionPiece::Component(new_comp) => {
                 write!(newacc, "{new}", new = new_comp.green())?;
               },
-              VersionSeparator(ignored) => write!(newacc, "{ignored}")?,
+              VersionPiece::Seperator(ignored) => write!(newacc, "{ignored}")?,
             }
           }
         },
@@ -525,10 +618,10 @@ fn write_packages_diffln(
             match diff {
               EitherOrBoth::Left(old_comp) => {
                 match old_comp {
-                  VersionPart(old_comp) => {
+                  VersionPiece::Component(old_comp) => {
                     write!(oldacc, "{old}", old = old_comp.red())?;
                   },
-                  VersionSeparator(ignored) => {
+                  VersionPiece::Seperator(ignored) => {
                     write!(oldacc, "{ignored}")?;
                   },
                 }
@@ -536,10 +629,10 @@ fn write_packages_diffln(
 
               EitherOrBoth::Right(new_comp) => {
                 match new_comp {
-                  VersionPart(new_comp) => {
+                  VersionPiece::Component(new_comp) => {
                     write!(newacc, "{new}", new = new_comp.green())?;
                   },
-                  VersionSeparator(ignored) => {
+                  VersionPiece::Seperator(ignored) => {
                     write!(newacc, "{ignored}")?;
                   },
                 }
@@ -547,7 +640,10 @@ fn write_packages_diffln(
 
               EitherOrBoth::Both(old_comp, new_comp) => {
                 match (old_comp, new_comp) {
-                  (VersionPart(old_comp), VersionPart(new_comp)) => {
+                  (
+                    VersionPiece::Component(old_comp),
+                    VersionPiece::Component(new_comp),
+                  ) => {
                     let mut difference_started = false;
                     let is_hash = is_hash(&old_comp);
 
@@ -576,19 +672,19 @@ fn write_packages_diffln(
                   },
                   (old_comp, new_comp) => {
                     match old_comp {
-                      VersionPart(old_comp) => {
+                      VersionPiece::Component(old_comp) => {
                         write!(oldacc, "{old}", old = old_comp.red())?;
                       },
-                      VersionSeparator(old_comp) => {
+                      VersionPiece::Seperator(old_comp) => {
                         write!(oldacc, "{old_comp}")?;
                       },
                     }
 
                     match new_comp {
-                      VersionPart(new_comp) => {
+                      VersionPiece::Component(new_comp) => {
                         write!(newacc, "{new}", new = new_comp.green())?;
                       },
-                      VersionSeparator(new_comp) => {
+                      VersionPiece::Seperator(new_comp) => {
                         write!(newacc, "{new_comp}")?;
                       },
                     }
@@ -600,11 +696,11 @@ fn write_packages_diffln(
 
           for comp in common_suffix.into_iter().rev().flatten() {
             match comp {
-              VersionPart(comp) => {
+              VersionPiece::Component(comp) => {
                 write!(oldacc, "{old}", old = comp.yellow())?;
                 write!(newacc, "{new}", new = comp.yellow())?;
               },
-              VersionSeparator(ignored) => {
+              VersionPiece::Seperator(ignored) => {
                 write!(oldacc, "{ignored}")?;
                 write!(newacc, "{ignored}")?;
               },
@@ -697,4 +793,103 @@ fn dissimilar_score(input: &str) -> f64 {
 
 fn is_hash(input: &str) -> bool {
   dissimilar_score(input) < 70.0
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::{
+    diff::{
+      levenshtein,
+      match_version_lists,
+    },
+    version::{
+      VersionComponent,
+      VersionComponentIter,
+      VersionPiece,
+    },
+  };
+
+  #[test]
+  fn basic_component_edit_dist() {
+    let from: Vec<VersionComponent> =
+      VersionComponentIter::new("foo-123.0-man-pages")
+        .filter_map(VersionPiece::get_components)
+        .collect();
+    let to: Vec<VersionComponent> =
+      VersionComponentIter::new("foo-123.4.12-man-pages")
+        .filter_map(VersionPiece::get_components)
+        .collect();
+    let dist = levenshtein(&from, &to);
+    assert_eq!(dist, 2);
+  }
+
+  #[test]
+  fn levenshtein_distance_tests() {
+    assert_eq!(
+      levenshtein(
+        &"kitten".chars().collect::<Vec<_>>(),
+        &"sitting".chars().collect::<Vec<_>>()
+      ),
+      3
+    );
+
+    assert_eq!(
+      levenshtein(
+        &"".chars().collect::<Vec<_>>(),
+        &"hello".chars().collect::<Vec<_>>()
+      ),
+      5
+    );
+
+    assert_eq!(
+      levenshtein(
+        &"abcd".chars().collect::<Vec<_>>(),
+        &"dcba".chars().collect::<Vec<_>>()
+      ),
+      4
+    );
+
+    assert_eq!(
+      levenshtein(
+        &"12345".chars().collect::<Vec<_>>(),
+        &"12345".chars().collect::<Vec<_>>()
+      ),
+      0
+    );
+
+    assert_eq!(
+      levenshtein(
+        &"distance".chars().collect::<Vec<_>>(),
+        &"difference".chars().collect::<Vec<_>>()
+      ),
+      5
+    );
+  }
+
+  #[test]
+  fn match_version_lists_test() {
+    use crate::version::Version;
+    let version_list_a = [
+      Version("5.116.0".to_owned()),
+      Version("5.116.0-bin".to_owned()),
+      Version("6.16.0".to_owned()),
+    ];
+    let version_list_b = [Version("6.17.0".to_owned())];
+
+    let matched = match_version_lists(&version_list_a, &version_list_b);
+
+    for version in matched {
+      match version {
+        itertools::EitherOrBoth::Both(left, right) => {
+          println!("{left} {right}");
+        },
+        itertools::EitherOrBoth::Left(left) => {
+          println!("{left}");
+        },
+        itertools::EitherOrBoth::Right(right) => {
+          println!("{right}");
+        },
+      }
+    }
+  }
 }

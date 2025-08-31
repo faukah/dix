@@ -1,7 +1,5 @@
 use std::cmp;
 
-pub use Err as VersionSeparator;
-pub use Ok as VersionPart;
 use derive_more::{
   Deref,
   DerefMut,
@@ -10,7 +8,7 @@ use derive_more::{
 };
 
 #[derive(Deref, DerefMut, Display, Debug, Clone, PartialEq, Eq, From)]
-pub struct Version(String);
+pub struct Version(pub String);
 
 impl PartialOrd for Version {
   fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -20,15 +18,17 @@ impl PartialOrd for Version {
 
 impl cmp::Ord for Version {
   fn cmp(&self, that: &Self) -> cmp::Ordering {
-    let this = VersionComponentIter::from(&***self).filter_map(Result::ok);
-    let that = VersionComponentIter::from(&***that).filter_map(Result::ok);
+    let this = VersionComponentIter::from(&***self)
+      .filter_map(VersionPiece::get_components);
+    let that = VersionComponentIter::from(&***that)
+      .filter_map(VersionPiece::get_components);
 
     this.cmp(that)
   }
 }
 
 impl<'a> IntoIterator for &'a Version {
-  type Item = Result<VersionComponent<'a>, &'a str>;
+  type Item = VersionPiece<'a>;
 
   type IntoIter = VersionComponentIter<'a>;
 
@@ -84,12 +84,34 @@ impl cmp::Ord for VersionComponent<'_> {
   }
 }
 
+/// Used by the [`VersionComponentIter`] to still give access to separators
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VersionPiece<'a> {
+  Component(VersionComponent<'a>),
+  Seperator(&'a str),
+}
+
+impl<'a> VersionPiece<'a> {
+  pub const fn get_components(self) -> Option<VersionComponent<'a>> {
+    match self {
+      VersionPiece::Component(version_component) => Some(version_component),
+      VersionPiece::Seperator(_) => None,
+    }
+  }
+}
+
 /// Yields [`VersionComponent`] from a version string.
 #[derive(Deref, DerefMut, From)]
 pub struct VersionComponentIter<'a>(&'a str);
 
+impl<'a> VersionComponentIter<'a> {
+  pub const fn new(version: &'a str) -> Self {
+    Self(version)
+  }
+}
+
 impl<'a> Iterator for VersionComponentIter<'a> {
-  type Item = Result<VersionComponent<'a>, &'a str>;
+  type Item = VersionPiece<'a>;
 
   fn next(&mut self) -> Option<Self::Item> {
     const SPLIT_CHARS: &[char] = &['.', '-', '_', '+', '*', '=', '×', ' '];
@@ -103,7 +125,7 @@ impl<'a> Iterator for VersionComponentIter<'a> {
       let (this, rest) = self.split_at(len);
 
       **self = rest;
-      return Some(Err(this));
+      return Some(VersionPiece::Seperator(this));
     }
 
     // Based on this collect characters after this into the component.
@@ -118,7 +140,7 @@ impl<'a> Iterator for VersionComponentIter<'a> {
 
     assert!(!component.is_empty());
 
-    Some(Ok(VersionComponent(component)))
+    Some(VersionPiece::Component(VersionComponent(component)))
   }
 }
 
@@ -130,6 +152,7 @@ mod tests {
     VersionComponent,
     VersionComponentIter,
   };
+  use crate::version::VersionPiece;
 
   #[test]
   fn version_component_iter() {
@@ -137,7 +160,7 @@ mod tests {
 
     assert_eq!(
       VersionComponentIter::from(version)
-        .filter_map(Result::ok)
+        .filter_map(VersionPiece::get_components)
         .collect::<Vec<_>>(),
       [
         VersionComponent("132"),

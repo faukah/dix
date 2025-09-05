@@ -46,7 +46,6 @@ use crate::{
   store,
   version::{
     VersionComponent,
-    VersionComponentIter,
     VersionPiece,
   },
 };
@@ -282,15 +281,19 @@ fn match_version_lists<'a>(
   // from from[i] to to[j].
   for (i, from_version) in from.iter().enumerate() {
     for (j, to_version) in to.iter().enumerate() {
-      let components_from: Vec<VersionComponent> =
-        VersionComponentIter::new(from_version)
-          .filter_map(VersionPiece::get_components)
-          .collect();
-      let components_to: Vec<VersionComponent> =
-        VersionComponentIter::new(to_version)
-          .filter_map(VersionPiece::get_components)
-          .collect();
-      distances[(i, j)] = levenshtein(&components_from, &components_to) as i32;
+      let components_from: Vec<VersionComponent> = from_version
+        .into_iter()
+        .filter_map(VersionPiece::component)
+        .collect();
+
+      let components_to: Vec<VersionComponent> = to_version
+        .into_iter()
+        .filter_map(VersionPiece::component)
+        .collect();
+
+      distances[(i, j)] =
+        i32::try_from(levenshtein(&components_from, &components_to))
+          .expect("distance must fit in i32");
     }
   }
   let (_cost, matchings) =
@@ -560,7 +563,7 @@ fn write_packages_diffln(
               VersionPiece::Component(old_comp) => {
                 write!(oldacc, "{old}", old = old_comp.red())?;
               },
-              VersionPiece::Seperator(ignored) => write!(oldacc, "{ignored}")?,
+              VersionPiece::Separator(ignored) => write!(oldacc, "{ignored}")?,
             }
           }
         },
@@ -578,7 +581,7 @@ fn write_packages_diffln(
               VersionPiece::Component(new_comp) => {
                 write!(newacc, "{new}", new = new_comp.green())?;
               },
-              VersionPiece::Seperator(ignored) => write!(newacc, "{ignored}")?,
+              VersionPiece::Separator(ignored) => write!(newacc, "{ignored}")?,
             }
           }
         },
@@ -621,7 +624,7 @@ fn write_packages_diffln(
                   VersionPiece::Component(old_comp) => {
                     write!(oldacc, "{old}", old = old_comp.red())?;
                   },
-                  VersionPiece::Seperator(ignored) => {
+                  VersionPiece::Separator(ignored) => {
                     write!(oldacc, "{ignored}")?;
                   },
                 }
@@ -632,7 +635,7 @@ fn write_packages_diffln(
                   VersionPiece::Component(new_comp) => {
                     write!(newacc, "{new}", new = new_comp.green())?;
                   },
-                  VersionPiece::Seperator(ignored) => {
+                  VersionPiece::Separator(ignored) => {
                     write!(newacc, "{ignored}")?;
                   },
                 }
@@ -675,7 +678,7 @@ fn write_packages_diffln(
                       VersionPiece::Component(old_comp) => {
                         write!(oldacc, "{old}", old = old_comp.red())?;
                       },
-                      VersionPiece::Seperator(old_comp) => {
+                      VersionPiece::Separator(old_comp) => {
                         write!(oldacc, "{old_comp}")?;
                       },
                     }
@@ -684,7 +687,7 @@ fn write_packages_diffln(
                       VersionPiece::Component(new_comp) => {
                         write!(newacc, "{new}", new = new_comp.green())?;
                       },
-                      VersionPiece::Seperator(new_comp) => {
+                      VersionPiece::Separator(new_comp) => {
                         write!(newacc, "{new_comp}")?;
                       },
                     }
@@ -700,7 +703,7 @@ fn write_packages_diffln(
                 write!(oldacc, "{old}", old = comp.yellow())?;
                 write!(newacc, "{new}", new = comp.yellow())?;
               },
-              VersionPiece::Seperator(ignored) => {
+              VersionPiece::Separator(ignored) => {
                 write!(oldacc, "{ignored}")?;
                 write!(newacc, "{ignored}")?;
               },
@@ -803,22 +806,24 @@ mod tests {
       match_version_lists,
     },
     version::{
+      Version,
       VersionComponent,
-      VersionComponentIter,
       VersionPiece,
     },
   };
 
   #[test]
   fn basic_component_edit_dist() {
-    let from: Vec<VersionComponent> =
-      VersionComponentIter::new("foo-123.0-man-pages")
-        .filter_map(VersionPiece::get_components)
-        .collect();
+    let from = Version::from("foo-123.0-man-pages".to_owned());
+    let from: Vec<VersionComponent> = from
+      .into_iter()
+      .filter_map(VersionPiece::component)
+      .collect();
+
+    let to = Version::from("foo-123.4.12-man-pages".to_owned());
     let to: Vec<VersionComponent> =
-      VersionComponentIter::new("foo-123.4.12-man-pages")
-        .filter_map(VersionPiece::get_components)
-        .collect();
+      to.into_iter().filter_map(VersionPiece::component).collect();
+
     let dist = levenshtein(&from, &to);
     assert_eq!(dist, 2);
   }

@@ -18,10 +18,8 @@ impl PartialOrd for Version {
 
 impl cmp::Ord for Version {
   fn cmp(&self, that: &Self) -> cmp::Ordering {
-    let this = VersionComponentIter::from(&***self)
-      .filter_map(VersionPiece::get_components);
-    let that = VersionComponentIter::from(&***that)
-      .filter_map(VersionPiece::get_components);
+    let this = VersionIter::from(&***self).filter_map(VersionPiece::component);
+    let that = VersionIter::from(&***that).filter_map(VersionPiece::component);
 
     this.cmp(that)
   }
@@ -30,10 +28,48 @@ impl cmp::Ord for Version {
 impl<'a> IntoIterator for &'a Version {
   type Item = VersionPiece<'a>;
 
-  type IntoIter = VersionComponentIter<'a>;
+  type IntoIter = VersionIter<'a>;
 
   fn into_iter(self) -> Self::IntoIter {
-    VersionComponentIter::from(&***self)
+    VersionIter::from(&***self)
+  }
+}
+
+/// Yields [`VersionPiece`] from a version string.
+#[derive(Deref, DerefMut, From)]
+pub struct VersionIter<'a>(&'a str);
+
+impl<'a> Iterator for VersionIter<'a> {
+  type Item = VersionPiece<'a>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    const SPLIT_CHARS: &[char] = &['.', '-', '_', '+', '*', '=', '×', ' '];
+
+    if self.is_empty() {
+      return None;
+    }
+
+    if self.starts_with(SPLIT_CHARS) {
+      let len = self.chars().next().unwrap().len_utf8();
+      let (this, rest) = self.split_at(len);
+
+      **self = rest;
+      return Some(VersionPiece::Separator(this));
+    }
+
+    // Based on this collect characters after this into the component.
+    let component_len = self
+      .chars()
+      .take_while(|&char| !SPLIT_CHARS.contains(&char))
+      .map(char::len_utf8)
+      .sum();
+
+    let component = &self[..component_len];
+    **self = &self[component_len..];
+
+    assert!(!component.is_empty());
+
+    Some(VersionPiece::Component(VersionComponent(component)))
   }
 }
 
@@ -88,59 +124,16 @@ impl cmp::Ord for VersionComponent<'_> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VersionPiece<'a> {
   Component(VersionComponent<'a>),
-  Seperator(&'a str),
+  Separator(&'a str),
 }
 
 impl<'a> VersionPiece<'a> {
-  pub const fn get_components(self) -> Option<VersionComponent<'a>> {
-    match self {
-      VersionPiece::Component(version_component) => Some(version_component),
-      VersionPiece::Seperator(_) => None,
-    }
-  }
-}
-
-/// Yields [`VersionComponent`] from a version string.
-#[derive(Deref, DerefMut, From)]
-pub struct VersionComponentIter<'a>(&'a str);
-
-impl<'a> VersionComponentIter<'a> {
-  pub const fn new(version: &'a str) -> Self {
-    Self(version)
-  }
-}
-
-impl<'a> Iterator for VersionComponentIter<'a> {
-  type Item = VersionPiece<'a>;
-
-  fn next(&mut self) -> Option<Self::Item> {
-    const SPLIT_CHARS: &[char] = &['.', '-', '_', '+', '*', '=', '×', ' '];
-
-    if self.is_empty() {
+  pub fn component(self) -> Option<VersionComponent<'a>> {
+    let VersionPiece::Component(component) = self else {
       return None;
-    }
+    };
 
-    if self.starts_with(SPLIT_CHARS) {
-      let len = self.chars().next().unwrap().len_utf8();
-      let (this, rest) = self.split_at(len);
-
-      **self = rest;
-      return Some(VersionPiece::Seperator(this));
-    }
-
-    // Based on this collect characters after this into the component.
-    let component_len = self
-      .chars()
-      .take_while(|&char| !SPLIT_CHARS.contains(&char))
-      .map(char::len_utf8)
-      .sum();
-
-    let component = &self[..component_len];
-    **self = &self[component_len..];
-
-    assert!(!component.is_empty());
-
-    Some(VersionPiece::Component(VersionComponent(component)))
+    Some(component)
   }
 }
 
@@ -150,7 +143,7 @@ mod tests {
 
   use super::{
     VersionComponent,
-    VersionComponentIter,
+    VersionIter,
   };
   use crate::version::VersionPiece;
 
@@ -159,8 +152,8 @@ mod tests {
     let version = "132.1.2test234-1-man----.--.......---------..---";
 
     assert_eq!(
-      VersionComponentIter::from(version)
-        .filter_map(VersionPiece::get_components)
+      VersionIter::from(version)
+        .filter_map(VersionPiece::component)
         .collect::<Vec<_>>(),
       [
         VersionComponent("132"),

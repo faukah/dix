@@ -50,7 +50,11 @@ impl<'a> Iterator for VersionIter<'a> {
     }
 
     if self.starts_with(SPLIT_CHARS) {
-      let len = self.chars().next().unwrap().len_utf8();
+      let len = self
+        .chars()
+        .next()
+        .expect("self starts with a char, so there is one")
+        .len_utf8();
       let (this, rest) = self.split_at(len);
 
       **self = rest;

@@ -12,7 +12,10 @@ use std::{
     Write as _,
   },
   fs,
-  mem::swap,
+  mem::{
+    self,
+    swap,
+  },
   path::{
     Path,
     PathBuf,
@@ -228,8 +231,7 @@ pub fn write_paths_diffln(
   )?)
 }
 
-// Computes the levensthein distance between two strings using
-// dynamic programming.
+// Computes the levenshtein distance between two slices.
 fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
   let (from_len, to_len) = (from.len(), to.len());
   if from_len == 0 {
@@ -256,20 +258,19 @@ fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
   prev_row[to_len]
 }
 
-/// Takes two lists of versions and tries to match
-/// them by first computing the edit distance for all pairs and using
+/// Takes two lists of versions and matches them by
+/// first computing the edit distance for all pairs and using
 /// the ordering defined on versions as tiebreaker.
-/// TODO: we might want to implement the hungarian algorithm ourselves
-fn match_version_lists<'a>(
+fn match_versions<'a>(
   mut from: &'a [Version],
   mut to: &'a [Version],
 ) -> Vec<EitherOrBoth<&'a Version>> {
-  // the hungarian algorithm for finding
-  // matchings requires #rows <= #columns
+  // The hungarian algorithm for finding
+  // matchings requires nr_rows <= nr_columns
   // Since the edit distance is symmetric,
-  // we can just swap the values
+  // we can just swap the values.
   let swapped = if from.len() > to.len() {
-    (to, from) = (from, to);
+    mem::swap(&mut from, &mut to);
     true
   } else {
     false
@@ -296,6 +297,7 @@ fn match_version_lists<'a>(
           .expect("distance must fit in i32");
     }
   }
+
   let (_cost, matchings) =
     kuhn_munkres::kuhn_munkres_min::<i32, Matrix<i32>>(&distances);
 
@@ -305,13 +307,14 @@ fn match_version_lists<'a>(
     pairings.push(EitherOrBoth::Both(&from[i], &to[j]));
     remaining.remove(&j);
   }
-  // some vertices in two might still not be matched so add those as well at the
-  // end
+
+  // Some vertices in two might still not be matched so add those as well at the
+  // end.
   let mut remaining = remaining.iter().map(|&j| &to[j]).collect::<Vec<_>>();
   remaining.sort_unstable();
   pairings.extend(remaining.into_iter().map(EitherOrBoth::Right));
 
-  // swap everything back
+  // Swap everything back if swapped originally.
   if swapped {
     pairings = pairings.into_iter().map(EitherOrBoth::flip).collect();
   }
@@ -340,7 +343,7 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
   // we add a ×{count} to signify the amount of times it occurs.
   let mut deduplicated_push = |mut version: Version, count: usize| {
     if count > 1 {
-      write!(version, " ×{count}").unwrap();
+      write!(version, " ×{count}").expect("writing to string must not fail");
     }
     deduplicated.push(version);
   };
@@ -443,6 +446,7 @@ fn write_packages_diffln(
       },
     }
   }
+
   let mut diffs = paths
     .into_iter()
     .filter_map(|(name, mut versions)| {
@@ -463,7 +467,7 @@ fn write_packages_diffln(
           let mut saw_upgrade = false;
           let mut saw_downgrade = false;
 
-          for diff in match_version_lists(&versions.old, &versions.new) {
+          for diff in match_versions(&versions.old, &versions.new) {
             match diff {
               EitherOrBoth::Left(_) => saw_downgrade = true,
               EitherOrBoth::Right(_) => saw_upgrade = true,
@@ -548,7 +552,7 @@ fn write_packages_diffln(
     let mut newacc = String::new();
     let mut newwrote = false;
 
-    for diff in match_version_lists(&versions.old, &versions.new) {
+    for diff in match_versions(&versions.old, &versions.new) {
       match diff {
         EitherOrBoth::Left(old_version) => {
           if oldwrote {
@@ -607,6 +611,7 @@ fn write_packages_diffln(
           let mut old_version: Vec<_> = old_version.into_iter().collect();
           let mut new_version: Vec<_> = new_version.into_iter().collect();
 
+          // TODO: Maybe match_versions and make this irrelevant too?
           let mut common_suffix = Vec::new();
 
           while old_version.last() == new_version.last() {
@@ -803,7 +808,7 @@ mod tests {
   use crate::{
     diff::{
       levenshtein,
-      match_version_lists,
+      match_versions,
     },
     version::{
       Version,
@@ -881,7 +886,7 @@ mod tests {
     ];
     let version_list_b = [Version("6.17.0".to_owned())];
 
-    let matched = match_version_lists(&version_list_a, &version_list_b);
+    let matched = match_versions(&version_list_a, &version_list_b);
 
     for version in matched {
       match version {

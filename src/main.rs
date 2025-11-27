@@ -34,6 +34,15 @@ struct Cli {
 
   #[command(flatten)]
   verbose: clap_verbosity_flag::Verbosity,
+
+  /// Controls when to use color.
+  #[arg(
+      long,
+      default_value_t = clap::ColorChoice::Auto,
+      value_name = "WHEN",
+      global = true,
+  )]
+  color: clap::ColorChoice,
 }
 
 fn real_main() -> Result<()> {
@@ -41,9 +50,14 @@ fn real_main() -> Result<()> {
     old_path,
     new_path,
     verbose,
+    color,
   } = Cli::parse();
 
-  yansi::whenever(yansi::Condition::TTY_AND_COLOR);
+  yansi::whenever(match color {
+    clap::ColorChoice::Auto => yansi::Condition::TTY_AND_COLOR,
+    clap::ColorChoice::Always => yansi::Condition::ALWAYS,
+    clap::ColorChoice::Never => yansi::Condition::NEVER,
+  });
 
   env_logger::Builder::new()
     .filter_level(verbose.log_level_filter())

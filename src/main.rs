@@ -1,10 +1,12 @@
 use std::{
+  env,
   fmt::{
     self,
     Write as _,
   },
   io::{
     self,
+    IsTerminal as _,
     Write as _,
   },
   path::PathBuf,
@@ -54,7 +56,7 @@ fn real_main() -> Result<()> {
   } = Cli::parse();
 
   yansi::whenever(match color {
-    clap::ColorChoice::Auto => yansi::Condition::TTY_AND_COLOR,
+    clap::ColorChoice::Auto => yansi::Condition::from(should_style),
     clap::ColorChoice::Always => yansi::Condition::ALWAYS,
     clap::ColorChoice::Never => yansi::Condition::NEVER,
   });
@@ -143,4 +145,31 @@ fn main() {
   }
 
   process::exit(1);
+}
+
+// https://bixense.com/clicolors/
+fn should_style() -> bool {
+  // If NO_COLOR is set and is not empty, don't style.
+  if let Some(value) = env::var_os("NO_COLOR")
+    && !value.is_empty()
+  {
+    return false;
+  }
+
+  // If CLICOLOR is set and is 0, don't style.
+  if let Some(value) = env::var_os("CLICOLOR")
+    && value == "0"
+  {
+    return false;
+  }
+
+  // If CLICOLOR_FORCE is set and not 0, always style.
+  if let Some(value) = env::var_os("CLICOLOR_FORCE")
+    && value != "0"
+  {
+    return true;
+  }
+
+  // Style if it is a terminal.
+  io::stdout().is_terminal()
 }

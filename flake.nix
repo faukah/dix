@@ -11,58 +11,65 @@
     };
   };
 
-  outputs = inputs @ {
-    self,
-    nixpkgs,
-    systems,
-    ...
-  }: let
-    inherit (nixpkgs) lib;
+  outputs =
+    inputs@{
+      self,
+      nixpkgs,
+      systems,
+      ...
+    }:
+    let
+      inherit (nixpkgs) lib;
+      eachSystem = lib.genAttrs (import systems);
+      pkgsFor = eachSystem (
+        system:
+        import nixpkgs {
+          localSystem.system = system;
+        }
+      );
+    in
+    {
+      packages = lib.mapAttrs (
+        system: pkgs:
+        let
+          fs = lib.fileset;
 
-    eachSystem = lib.genAttrs (import systems);
-    pkgsFor = eachSystem (system:
-      import nixpkgs {
-        localSystem.system = system;
-      });
-  in {
-    packages =
-      lib.mapAttrs (system: pkgs: let
-        fs = lib.fileset;
+          src = fs.difference (fs.gitTracked ./.) (
+            fs.unions [
+              ./.envrc
+              ./.rustfmt.toml
+              ./flake.lock
+              (fs.fileFilter (file: lib.strings.hasInfix ".git" file.name) ./.)
+              (fs.fileFilter (file: file.hasExt "md") ./.)
+              (fs.fileFilter (file: file.hasExt "nix") ./.)
+            ]
+          );
+        in
+        {
+          default = self.packages.${system}.dix;
 
-        src = fs.difference (fs.gitTracked ./.) (fs.unions [
-          ./.envrc
-          ./.rustfmt.toml
-          ./flake.lock
-          (fs.fileFilter (file: lib.strings.hasInfix ".git" file.name) ./.)
-          (fs.fileFilter (file: file.hasExt "md") ./.)
-          (fs.fileFilter (file: file.hasExt "nix") ./.)
-        ]);
-      in {
-        default = self.packages.${system}.dix;
+          dix = pkgs.rustPlatform.buildRustPackage {
+            name = "dix";
 
-        dix = pkgs.rustPlatform.buildRustPackage {
-          name = "dix";
+            src = fs.toSource {
+              root = ./.;
+              fileset = src;
+            };
 
-          src = fs.toSource {
-            root = ./.;
-            fileset = src;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              allowBuiltinFetchGit = true;
+            };
+
+            buildType = "release";
+
+            doCheck = false;
+            strictDeps = true;
           };
+        }
+      ) pkgsFor;
 
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-            allowBuiltinFetchGit = true;
-          };
-
-          buildType = "release";
-
-          doCheck = false;
-          strictDeps = true;
-        };
-      })
-      pkgsFor;
-
-    devShells =
-      lib.mapAttrs (system: pkgs: {
+      devShells = lib.mapAttrs (system: pkgs: {
         default = self.devShells.${system}.dix;
 
         dix = pkgs.mkShell {
@@ -74,8 +81,11 @@
             # TOML formatting.
             taplo
 
+            cargo-flamegraph
+
             (inputs.fenix.packages.${system}.combine (
-              with inputs.fenix.packages.${system}; [
+              with inputs.fenix.packages.${system};
+              [
                 stable.cargo
                 stable.clippy
                 stable.rust-analyzer
@@ -89,7 +99,6 @@
 
           env.RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
         };
-      })
-      pkgsFor;
-  };
+      }) pkgsFor;
+    };
 }

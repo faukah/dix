@@ -50,10 +50,18 @@ use crate::{
   },
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Eq, PartialEq)]
 struct Diff<T> {
   old: T,
   new: T,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct DetailedDiff {
+  name:      String,
+  diff:      Diff<Vec<Version>>,
+  status:    DiffStatus,
+  selection: DerivationSelectionStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -371,362 +379,308 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
   *versions = deduplicated;
 }
 
-#[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
-fn write_packages_diffln(
+/// Entry point for writing package differences.
+pub fn write_packages_diffln(
   writer: &mut impl fmt::Write,
   paths_old: impl Iterator<Item = StorePath>,
   paths_new: impl Iterator<Item = StorePath>,
   system_paths_old: impl Iterator<Item = StorePath>,
   system_paths_new: impl Iterator<Item = StorePath>,
 ) -> Result<usize, fmt::Error> {
+  let paths_map = collect_path_versions(paths_old, paths_new);
+  let sys_old_set = collect_system_names(system_paths_old, "old");
+  let sys_new_set = collect_system_names(system_paths_new, "new");
+
+  let mut diffs = generate_diffs_from_paths(paths_map, &Diff {
+    old: sys_old_set,
+    new: sys_new_set,
+  });
+
+  // We want to sort the diffs by their diff status, e.g.:
+  // CHANGED
+  // ...
+  // ...
+  //
+  // ADDDED
+  // ...
+  // ...
+  //
+  // REMOVED
+  // ...
+  // ...
+  // The diffs themselves get sorted by name inside of their sections.
+  #[expect(clippy::min_ident_chars)]
+  diffs
+    .sort_by(|a, b| a.status.cmp(&b.status).then_with(|| a.name.cmp(&b.name)));
+
+  render_diffs(writer, &diffs)
+}
+
+// --- Data Collection Helpers ---
+
+fn collect_system_names(
+  paths: impl Iterator<Item = StorePath>,
+  context: &str,
+) -> HashSet<String> {
+  paths
+    .filter_map(|path| {
+      match path.parse_name_and_version() {
+        Ok((name, _)) => Some(name.into()),
+        Err(error) => {
+          log::warn!("error parsing {context} system path name: {error}");
+          None
+        },
+      }
+    })
+    .collect()
+}
+
+fn collect_path_versions(
+  old: impl Iterator<Item = StorePath>,
+  new: impl Iterator<Item = StorePath>,
+) -> HashMap<String, Diff<Vec<Version>>> {
   let mut paths = HashMap::<String, Diff<Vec<Version>>>::new();
 
-  // Collect the names of old and new paths.
-  let system_derivations_old: HashSet<String> = system_paths_old
-    .filter_map(|path| {
-      match path.parse_name_and_version() {
-        Ok((name, _)) => Some(name.into()),
-        Err(error) => {
-          log::warn!("error parsing old system path name and version: {error}");
-          None
-        },
-      }
-    })
-    .collect();
-
-  let system_derivations_new: HashSet<String> = system_paths_new
-    .filter_map(|path| {
-      match path.parse_name_and_version() {
-        Ok((name, _)) => Some(name.into()),
-        Err(error) => {
-          log::warn!("error parsing new system path name and version: {error}");
-          None
-        },
-      }
-    })
-    .collect();
-
-  for path in paths_old {
+  let mut add_ver = |path: StorePath, is_old: bool| {
     match path.parse_name_and_version() {
       Ok((name, version)) => {
-        log::trace!("parsed name: {name}");
-        log::trace!("parsed version: {version:?}");
-
-        paths
-          .entry(name.into())
-          .or_default()
-          .old
+        let entry = paths.entry(name.into()).or_default();
+        let list = if is_old {
+          &mut entry.old
+        } else {
+          &mut entry.new
+        };
+        list
           .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
       },
-
-      Err(error) => {
-        log::warn!("error parsing old path name and version: {error}");
-      },
+      Err(e) => log::warn!("error parsing path: {e}"),
     }
+  };
+
+  for p in old {
+    add_ver(p, true);
+  }
+  for p in new {
+    add_ver(p, false);
   }
 
-  for path in paths_new {
-    match path.parse_name_and_version() {
-      Ok((name, version)) => {
-        log::trace!("parsed name: {name}");
-        log::trace!("parsed version: {version:?}");
+  paths
+}
 
-        paths
-          .entry(name.into())
-          .or_default()
-          .new
-          .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
-      },
-
-      Err(error) => {
-        log::warn!("error parsing new path name and version: {error}");
-      },
-    }
-  }
-  let mut diffs = paths
-    .into_iter()
-    .filter_map(|(name, mut versions)| {
-      deduplicate_versions(&mut versions.old);
-      deduplicate_versions(&mut versions.new);
-
-      let old_copy = versions.old.clone();
-      let new_copy = versions.new.clone();
-
-      versions.old.retain(|ver| !new_copy.contains(ver));
-      versions.new.retain(|ver| !old_copy.contains(ver));
-
-      let status = match (versions.old.len(), versions.new.len()) {
-        (0, 0) => return None,
-        (0, _) => DiffStatus::Added,
-        (_, 0) => DiffStatus::Removed,
-        _ => {
-          let mut saw_upgrade = false;
-          let mut saw_downgrade = false;
-
-          for diff in match_version_lists(&versions.old, &versions.new) {
-            match diff {
-              EitherOrBoth::Left(_) => saw_downgrade = true,
-              EitherOrBoth::Right(_) => saw_upgrade = true,
-
-              EitherOrBoth::Both(old, new) => {
-                match old.cmp(new) {
-                  cmp::Ordering::Less => saw_upgrade = true,
-                  cmp::Ordering::Greater => saw_downgrade = true,
-                  cmp::Ordering::Equal => {},
-                }
-
-                if saw_upgrade && saw_downgrade {
-                  break;
-                }
-              },
-            }
-          }
-
-          DiffStatus::Changed(match (saw_upgrade, saw_downgrade) {
-            (true, true) => Change::UpgradeDowngrade,
-            (true, false) => Change::Upgraded,
-            (false, true) => Change::Downgraded,
-            _ => return None,
-          })
-        },
-      };
-
-      let selection = DerivationSelectionStatus::from_names(
-        &name,
-        &system_derivations_old,
-        &system_derivations_new,
-      );
-
-      Some((name, versions, status, selection))
-    })
-    .collect::<Vec<_>>();
-
-  diffs.sort_by(
-    |&(ref a_name, _, a_status, _), &(ref b_name, _, b_status, _)| {
-      a_status.cmp(&b_status).then_with(|| a_name.cmp(b_name))
-    },
-  );
-
-  #[expect(clippy::pattern_type_mismatch)]
-  let name_width = diffs
-    .iter()
-    .map(|(name, ..)| name.width())
-    .max()
-    .unwrap_or(0);
+fn render_diffs(
+  writer: &mut impl fmt::Write,
+  diffs: &[DetailedDiff],
+) -> Result<usize, fmt::Error> {
+  let name_width = diffs.iter().map(|d| d.name.width()).max().unwrap_or(0) + 1;
 
   let mut last_status = None::<DiffStatus>;
 
-  for &(ref name, ref versions, status, selection) in &diffs {
-    if last_status.is_none_or(|last_status| {
-      // Using the Ord implementation instead of Eq on purpose.
-      // Eq returns false for DiffStatus::Changed(X) == DiffStatus::Changed(Y).
-      last_status.cmp(&status) != cmp::Ordering::Equal
-    }) {
-      writeln!(
-        writer,
-        "{nl}{status}",
-        nl = if last_status.is_some() { "\n" } else { "" },
-        status = match status {
-          DiffStatus::Changed(_) => "CHANGED",
-          DiffStatus::Added => "ADDED",
-          DiffStatus::Removed => "REMOVED",
-        }
-        .bold(),
-      )?;
-
-      last_status = Some(status);
-    }
-
-    let status = status.char();
-    let selection = selection.char();
-    let name = name.paint(selection.style);
-
-    write!(writer, "[{status}{selection}] {name:<name_width$}")?;
-
-    let mut oldacc = String::new();
-    let mut oldwrote = false;
-    let mut newacc = String::new();
-    let mut newwrote = false;
-
-    for diff in match_version_lists(&versions.old, &versions.new) {
-      match diff {
-        EitherOrBoth::Left(old_version) => {
-          if oldwrote {
-            write!(oldacc, ", ")?;
-          } else {
-            write!(oldacc, " ")?;
-            oldwrote = true;
-          }
-
-          for old_comp in old_version {
-            match old_comp {
-              VersionPiece::Component(old_comp) => {
-                write!(oldacc, "{old}", old = old_comp.red())?;
-              },
-              VersionPiece::Separator(ignored) => write!(oldacc, "{ignored}")?,
-            }
-          }
-        },
-
-        EitherOrBoth::Right(new_version) => {
-          if newwrote {
-            write!(newacc, ", ")?;
-          } else {
-            write!(newacc, " ")?;
-            newwrote = true;
-          }
-
-          for new_comp in new_version {
-            match new_comp {
-              VersionPiece::Component(new_comp) => {
-                write!(newacc, "{new}", new = new_comp.green())?;
-              },
-              VersionPiece::Separator(ignored) => write!(newacc, "{ignored}")?,
-            }
-          }
-        },
-
-        EitherOrBoth::Both(old_version, new_version) => {
-          if old_version == new_version {
-            continue;
-          }
-
-          if oldwrote {
-            write!(oldacc, ", ")?;
-          } else {
-            write!(oldacc, " ")?;
-            oldwrote = true;
-          }
-          if newwrote {
-            write!(newacc, ", ")?;
-          } else {
-            write!(newacc, " ")?;
-            newwrote = true;
-          }
-
-          let mut old_version: Vec<_> = old_version.into_iter().collect();
-          let mut new_version: Vec<_> = new_version.into_iter().collect();
-
-          let mut common_suffix = Vec::new();
-
-          while old_version.last() == new_version.last() {
-            old_version.pop();
-            common_suffix.push(new_version.pop());
-          }
-
-          for diff in Itertools::zip_longest(
-            old_version.into_iter(),
-            new_version.into_iter(),
-          ) {
-            match diff {
-              EitherOrBoth::Left(old_comp) => {
-                match old_comp {
-                  VersionPiece::Component(old_comp) => {
-                    write!(oldacc, "{old}", old = old_comp.red())?;
-                  },
-                  VersionPiece::Separator(ignored) => {
-                    write!(oldacc, "{ignored}")?;
-                  },
-                }
-              },
-
-              EitherOrBoth::Right(new_comp) => {
-                match new_comp {
-                  VersionPiece::Component(new_comp) => {
-                    write!(newacc, "{new}", new = new_comp.green())?;
-                  },
-                  VersionPiece::Separator(ignored) => {
-                    write!(newacc, "{ignored}")?;
-                  },
-                }
-              },
-
-              EitherOrBoth::Both(old_comp, new_comp) => {
-                match (old_comp, new_comp) {
-                  (
-                    VersionPiece::Component(old_comp),
-                    VersionPiece::Component(new_comp),
-                  ) => {
-                    let mut difference_started = false;
-                    let is_hash = is_hash(&old_comp);
-
-                    for char in diff::chars(*old_comp, *new_comp) {
-                      match char {
-                        diff::Result::Both(old_part, new_part) => {
-                          if difference_started {
-                            difference_started = true;
-                            write!(oldacc, "{old}", old = old_part.red())?;
-                            write!(newacc, "{new}", new = new_part.green())?;
-                          } else {
-                            write!(oldacc, "{old}", old = old_part.yellow())?;
-                            write!(newacc, "{new}", new = new_part.yellow())?;
-                          }
-                        },
-                        diff::Result::Left(old_part) => {
-                          difference_started = is_hash;
-                          write!(oldacc, "{old}", old = old_part.red())?;
-                        },
-                        diff::Result::Right(new_part) => {
-                          difference_started = is_hash;
-                          write!(newacc, "{new}", new = new_part.green())?;
-                        },
-                      }
-                    }
-                  },
-                  (old_comp, new_comp) => {
-                    match old_comp {
-                      VersionPiece::Component(old_comp) => {
-                        write!(oldacc, "{old}", old = old_comp.red())?;
-                      },
-                      VersionPiece::Separator(old_comp) => {
-                        write!(oldacc, "{old_comp}")?;
-                      },
-                    }
-
-                    match new_comp {
-                      VersionPiece::Component(new_comp) => {
-                        write!(newacc, "{new}", new = new_comp.green())?;
-                      },
-                      VersionPiece::Separator(new_comp) => {
-                        write!(newacc, "{new_comp}")?;
-                      },
-                    }
-                  },
-                }
-              },
-            }
-          }
-
-          for comp in common_suffix.into_iter().rev().flatten() {
-            match comp {
-              VersionPiece::Component(comp) => {
-                write!(oldacc, "{old}", old = comp.yellow())?;
-                write!(newacc, "{new}", new = comp.yellow())?;
-              },
-              VersionPiece::Separator(ignored) => {
-                write!(oldacc, "{ignored}")?;
-                write!(newacc, "{ignored}")?;
-              },
-            }
-          }
-        },
+  for d in diffs {
+    // Print Section Header (CHANGED, ADDED, REMOVED)
+    if last_status
+      .map_or_else(|| true, |ls| ls.cmp(&d.status) != cmp::Ordering::Equal)
+    {
+      if last_status.is_some() {
+        writeln!(writer)?;
       }
+      let header = match d.status {
+        DiffStatus::Changed(_) => "CHANGED",
+        DiffStatus::Added => "ADDED",
+        DiffStatus::Removed => "REMOVED",
+      }
+      .bold();
+      writeln!(writer, "{header}")?;
+      last_status = Some(d.status);
     }
 
+    // Print Package Name
+    let status_char = d.status.char();
+    let sel_char = d.selection.char();
+    let name_painted = d.name.paint(sel_char.style);
     write!(
       writer,
-      "{oldacc}{arrow}{newacc}",
-      arrow = if !oldacc.is_empty() && !newacc.is_empty() {
-        " ->"
-      } else {
-        ""
-      }
+      "[{status_char}{sel_char}] {name_painted:<name_width$}"
     )?;
 
-    writeln!(writer)?;
+    // Print Version Differences
+    let (old_str, new_str) = fmt_version_diffs(&d.diff.old, &d.diff.new)?;
+
+    let arrow = if !old_str.is_empty() && !new_str.is_empty() {
+      " -> "
+    } else {
+      ""
+    };
+    writeln!(writer, "{old_str}{arrow}{new_str}")?;
   }
 
   Ok(diffs.len())
+}
+
+/// Generates the colored strings for the old and new versions.
+fn fmt_version_diffs(
+  old_versions: &[Version],
+  new_versions: &[Version],
+) -> Result<(String, String), fmt::Error> {
+  let mut old_acc = String::new();
+  let mut new_acc = String::new();
+  let mut old_wrote = false;
+  let mut new_wrote = false;
+
+  let append_sep = |acc: &mut String, wrote: &mut bool| {
+    if *wrote {
+      write!(acc, ", ")
+    } else {
+      *wrote = true;
+      Ok(())
+    }
+  };
+
+  for diff in match_version_lists(old_versions, new_versions) {
+    match diff {
+      EitherOrBoth::Left(old) => {
+        append_sep(&mut old_acc, &mut old_wrote)?;
+        for comp in old {
+          write_ver_piece(&mut old_acc, &comp, |c| c.red())?;
+        }
+      },
+      EitherOrBoth::Right(new) => {
+        append_sep(&mut new_acc, &mut new_wrote)?;
+        for comp in new {
+          write_ver_piece(&mut new_acc, &comp, |c| c.green())?;
+        }
+      },
+      EitherOrBoth::Both(old, new) => {
+        if old == new {
+          continue;
+        }
+
+        append_sep(&mut old_acc, &mut old_wrote)?;
+        append_sep(&mut new_acc, &mut new_wrote)?;
+
+        fmt_version_diff(&mut old_acc, &mut new_acc, old, new)?;
+      },
+    }
+  }
+  Ok((old_acc, new_acc))
+}
+
+fn write_ver_piece(
+  buf: &mut String,
+  piece: &VersionPiece,
+  style: impl Fn(Painted<&str>) -> Painted<&str>,
+) -> fmt::Result {
+  match piece {
+    VersionPiece::Component(c) => write!(buf, "{}", style(Painted::new(c))),
+    VersionPiece::Separator(s) => write!(buf, "{s}"),
+  }
+}
+
+/// Handles the logic of comparing two specific versions:
+/// 1. Finds common prefixes and suffixes, which are colored yellow.
+/// 2. Compares the remaining middle parts, with removals in red and additions
+///    in green.
+fn fmt_version_diff(
+  old_acc: &mut String,
+  new_acc: &mut String,
+  old_ver: &Version,
+  new_ver: &Version,
+) -> fmt::Result {
+  let old_parts: Vec<_> = old_ver.into_iter().collect();
+  let new_parts: Vec<_> = new_ver.into_iter().collect();
+
+  // Find the lengths of the common prefix and suffix to isolate the differing
+  // middle parts.
+  let prefix_len = old_parts
+    .iter()
+    .zip(&new_parts)
+    .take_while(|(a, b)| a == b)
+    .count();
+
+  let suffix_len = old_parts[prefix_len..]
+    .iter()
+    .rev()
+    .zip(new_parts[prefix_len..].iter().rev())
+    .take_while(|(a, b)| a == b)
+    .count();
+
+  // Get slices for the three sections: prefix, diff, and suffix.
+  let prefix = &old_parts[..prefix_len];
+  let old_diff = &old_parts[prefix_len..old_parts.len() - suffix_len];
+  let new_diff = &new_parts[prefix_len..new_parts.len() - suffix_len];
+  let suffix = &old_parts[old_parts.len() - suffix_len..];
+
+  // Write common prefix (yellow).
+  for piece in prefix {
+    write_ver_piece(old_acc, piece, |c| c.yellow())?;
+    write_ver_piece(new_acc, piece, |c| c.yellow())?;
+  }
+
+  // Write differing middle parts (red/green).
+  for pair in Itertools::zip_longest(old_diff.into_iter(), new_diff.into_iter())
+  {
+    match pair {
+      EitherOrBoth::Left(old) => write_ver_piece(old_acc, old, |c| c.red())?,
+      EitherOrBoth::Right(new) => write_ver_piece(new_acc, new, |c| c.green())?,
+      EitherOrBoth::Both(old, new) => {
+        fmt_version_piece_pair(old_acc, new_acc, old, new)?;
+      },
+    }
+  }
+
+  // Write common suffix (yellow).
+  for piece in suffix {
+    write_ver_piece(old_acc, piece, |c| c.yellow())?;
+    write_ver_piece(new_acc, piece, |c| c.yellow())?;
+  }
+
+  Ok(())
+}
+
+/// Compares and formats two `VersionPieces`.
+fn fmt_version_piece_pair(
+  old_acc: &mut String,
+  new_acc: &mut String,
+  old_piece: &VersionPiece,
+  new_piece: &VersionPiece,
+) -> fmt::Result {
+  match (old_piece, new_piece) {
+    // If both the old and the new component are of type
+    // `VersionPiece::Component`, we want to do character-level diffing.
+    (VersionPiece::Component(old_c), VersionPiece::Component(new_c)) => {
+      let char_diffs: Vec<_> = diff::chars(old_c, new_c);
+
+      let hash_mode = is_hash(old_c);
+      let mut diff_active = false;
+
+      for res in char_diffs {
+        match res {
+          diff::Result::Both(l, r) => {
+            if diff_active {
+              write!(old_acc, "{}", l.red())?;
+              write!(new_acc, "{}", r.green())?;
+            } else {
+              write!(old_acc, "{}", l.yellow())?;
+              write!(new_acc, "{}", r.yellow())?;
+            }
+          },
+          diff::Result::Left(l) => {
+            diff_active = hash_mode;
+            write!(old_acc, "{}", l.red())?;
+          },
+          diff::Result::Right(r) => {
+            diff_active = hash_mode;
+            write!(new_acc, "{}", r.green())?;
+          },
+        }
+      }
+    },
+    // If one is a separator and the other isn't, or both separators differ
+    (o, n) => {
+      write_ver_piece(old_acc, o, |c| c.red())?;
+      write_ver_piece(new_acc, n, |c| c.green())?;
+    },
+  }
+  Ok(())
 }
 
 /// Spawns a task to compute the data required by [`write_size_diffln`].
@@ -781,6 +735,117 @@ pub fn write_size_diffln(
       size_diff.red()
     },
   )
+}
+
+fn generate_diffs_from_paths(
+  paths: HashMap<String, Diff<Vec<Version>>>,
+  system_paths: &Diff<HashSet<String>>,
+) -> Vec<DetailedDiff> {
+  paths
+    .into_iter()
+    .filter_map(|(name, mut versions)| {
+      deduplicate_versions(&mut versions.old);
+      deduplicate_versions(&mut versions.new);
+
+      // 1. Convert to HashSets for O(1) lookups
+      let old_set: HashSet<_> = versions.old.iter().cloned().collect();
+      let new_set: HashSet<_> = versions.new.iter().cloned().collect();
+
+      let common_versions_count = old_set.intersection(&new_set).count();
+
+      versions.old.retain(|ver| !new_set.contains(ver));
+      versions.new.retain(|ver| !old_set.contains(ver));
+
+      let status = match (versions.old.len(), versions.new.len()) {
+        (0, 0) => return None,
+        (0, _) => DiffStatus::Added,
+        (_, 0) => DiffStatus::Removed,
+        _ => {
+          let mut saw_upgrade = false;
+          let mut saw_downgrade = false;
+
+          for diff in match_version_lists(&versions.old, &versions.new) {
+            match diff {
+              EitherOrBoth::Left(_) => saw_downgrade = true,
+              EitherOrBoth::Right(_) => saw_upgrade = true,
+
+              EitherOrBoth::Both(old, new) => {
+                match old.cmp(new) {
+                  cmp::Ordering::Less => saw_upgrade = true,
+                  cmp::Ordering::Greater => saw_downgrade = true,
+                  cmp::Ordering::Equal => {},
+                }
+
+                if saw_upgrade && saw_downgrade {
+                  break;
+                }
+              },
+            }
+          }
+
+          DiffStatus::Changed(match (saw_upgrade, saw_downgrade) {
+            (true, true) => Change::UpgradeDowngrade,
+            (true, false) => Change::Upgraded,
+            (false, true) => Change::Downgraded,
+            (false, false) => return None,
+          })
+        },
+      };
+
+      // Show an `<others>` version field if there is at least *one* common
+      // version, and exactly one of the two lists of retained versions
+      // has a length of at most 1. This helps prevent issues like
+      // `https://github.com/faukah/dix/issues/40`,
+      // where packages get flagged as removed incorrectly, since the update
+      // drops *some* versions of a package, but not all.
+      //
+      // This code does explicitly *not* catch cases like
+      // `["1.2.0", "1.3"] -> ["1.2.0", "1.5"]`, since that should be correctly
+      // shown as an upgrade, i.e. `1.3 -> 1.5`.
+      // `["1.2.0", "1.3"] -> ["1.2.0"]` would however be caught and result in
+      // `<others>`
+      if common_versions_count > 0
+        && ((versions.old.len() <= 1 && versions.new.len() == 0)
+          || (versions.new.len() <= 1 && versions.old.len() == 0))
+      {
+        println!("AAAAAAAAAA");
+        println!("old: {:?} new: {:?}", versions.old, versions.new);
+        println!(
+          "old: {:?} new: {:?} common: {}",
+          versions.old.len(),
+          versions.new.len(),
+          common_versions_count
+        );
+        let old_part = versions.old.get(0);
+        let new_part = versions.new.get(0);
+        if let Some(old) = old_part {
+          versions.old = vec![old.clone(), Version("<others>".to_owned())];
+        } else {
+          versions.old = vec![Version("<others>".to_owned())];
+        }
+        if let Some(new) = new_part {
+          versions.new = vec![new.clone(), Version("<others>".to_owned())];
+        } else {
+          versions.new = vec![Version("<others>".to_owned())];
+        }
+      }
+
+      let selection = DerivationSelectionStatus::from_names(
+        &name,
+        &system_paths.old,
+        &system_paths.new,
+      );
+
+      let diff = DetailedDiff {
+        name,
+        diff: versions,
+        status,
+        selection,
+      };
+
+      Some(diff)
+    })
+    .collect()
 }
 
 #[expect(clippy::cast_precision_loss)]
@@ -897,4 +962,50 @@ mod tests {
       }
     }
   }
+}
+
+#[test]
+fn test_generate_diffs_from_paths() {
+  use crate::version::Version;
+  let mut paths: HashMap<String, Diff<Vec<Version>>> = HashMap::new();
+
+  let diff_1: Diff<Vec<Version>> = Diff {
+    old: vec![Version("1.1.0".to_owned()), Version("1.3".to_owned())],
+    new: vec![Version("1.1.0".to_owned()), Version("1.4".to_owned())],
+  };
+  let system_paths = Diff {
+    old: HashSet::<String>::new(),
+    new: HashSet::<String>::new(),
+  };
+  paths.insert("tmp1".to_owned(), diff_1);
+  let vec_1 = generate_diffs_from_paths(paths, &system_paths);
+  let res_1 = DetailedDiff {
+    name:      "tmp1".to_owned(),
+    diff:      Diff {
+      old: vec![Version("1.3".to_owned())],
+      new: vec![Version("1.4".to_owned())],
+    },
+    status:    DiffStatus::Changed(Change::Upgraded),
+    selection: DerivationSelectionStatus::Unselected,
+  };
+  assert_eq!(vec_1.first().unwrap(), &res_1);
+
+  paths = HashMap::new();
+
+  let diff_2: Diff<Vec<Version>> = Diff {
+    old: vec![Version("1.2.0".to_owned()), Version("1.5".to_owned())],
+    new: vec![Version("1.2.0".to_owned())],
+  };
+  paths.insert("tmp".to_owned(), diff_2);
+  let vec_2 = generate_diffs_from_paths(paths, &system_paths);
+  let res_1 = DetailedDiff {
+    name:      "tmp".to_owned(),
+    diff:      Diff {
+      old: vec![Version("1.5".to_owned()), Version("<others>".to_owned())],
+      new: vec![Version("<others>".to_owned())],
+    },
+    status:    DiffStatus::Removed,
+    selection: DerivationSelectionStatus::Unselected,
+  };
+  assert_eq!(vec_2.first().unwrap(), &res_1);
 }

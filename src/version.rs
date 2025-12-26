@@ -7,7 +7,7 @@ use derive_more::{
   From,
 };
 
-#[derive(Deref, DerefMut, Display, Debug, Clone, PartialEq, Eq, From)]
+#[derive(Deref, DerefMut, Display, Debug, Clone, PartialEq, Eq, From, Hash)]
 pub struct Version(pub String);
 
 impl PartialOrd for Version {

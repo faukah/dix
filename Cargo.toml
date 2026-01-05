@@ -1,7 +1,7 @@
 [package]
 name        = "dix"
 description = "Diff Nix"
-version     = "1.3.0"
+version     = "1.4.0"
 license     = "GPL-3.0-only"
 edition     = "2024"
 homepage    = "https://github.com/faukah/dix"
@@ -28,87 +28,69 @@ yansi               = { features = [ "detect-env", "detect-tty" ], version = "1.
 [dev-dependencies]
 proptest = "1.6.0"
 
+[profile.release]
+lto           = "fat"
+opt-level     = 3
+
+# See:
+#  <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>
 [lints.clippy]
-pedantic = { level = "warn", priority = -1 }
+cargo      = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+nursery    = { level = "warn", priority = -1 }
+pedantic   = { level = "warn", priority = -1 }
+perf       = { level = "warn", priority = -1 }
+style      = { level = "warn", priority = -1 }
 
-blanket_clippy_restriction_lints = "allow"
-restriction                      = { level = "warn", priority = -1 }
+# The lint groups above enable some less-than-desirable rules, we should manually
+# enable those to keep our sanity.
+absolute_paths                       = "allow"
+arbitrary_source_item_ordering       = "allow"
+clone_on_ref_ptr                     = "warn"
+dbg_macro                            = "warn"
+empty_drop                           = "warn"
+empty_structs_with_brackets          = "warn"
+exit                                 = "warn"
+filetype_is_file                     = "warn"
+get_unwrap                           = "warn"
+implicit_return                      = "allow"
+infinite_loop                        = "warn"
+map_with_unused_argument_over_ranges = "warn"
+missing_docs_in_private_items        = "allow"
+multiple_crate_versions              = "allow" # :(
+non_ascii_literal                    = "allow"
+non_std_lazy_statics                 = "warn"
+pathbuf_init_then_push               = "warn"
+pattern_type_mismatch                = "allow"
+question_mark_used                   = "allow"
+rc_buffer                            = "warn"
+rc_mutex                             = "warn"
+rest_pat_in_fully_bound_structs      = "warn"
+similar_names                        = "allow"
+single_call_fn                       = "allow"
+std_instead_of_core                  = "allow"
+too_long_first_doc_paragraph         = "allow"
+too_many_lines                       = "allow"
+undocumented_unsafe_blocks           = "warn"
+unnecessary_safety_comment           = "warn"
+unused_result_ok                     = "warn"
+unused_trait_names                   = "allow"
 
-alloc_instead_of_core             = "allow"
-allow_attributes_without_reason   = "allow"
-arbitrary_source_item_ordering    = "allow"
-arithmetic_side_effects           = "allow"
-as_conversions                    = "allow"
-as_pointer_underscore             = "allow"
-as_underscore                     = "allow"
-big_endian_bytes                  = "allow"
-clone_on_ref_ptr                  = "allow"
-dbg_macro                         = "allow"
-disallowed_script_idents          = "allow"
-else_if_without_else              = "allow"
-error_impl_error                  = "allow"
-exhaustive_enums                  = "allow"
-exhaustive_structs                = "allow"
-expect_used                       = "allow"
-field_scoped_visibility_modifiers = "allow"
-float_arithmetic                  = "allow"
-host_endian_bytes                 = "allow"
-impl_trait_in_params              = "allow"
-implicit_return                   = "allow"
-indexing_slicing                  = "allow"
-inline_asm_x86_intel_syntax       = "allow"
-integer_division                  = "allow"
-integer_division_remainder_used   = "allow"
-large_include_file                = "allow"
-let_underscore_must_use           = "allow"
-let_underscore_untyped            = "allow"
-little_endian_bytes               = "allow"
-map_err_ignore                    = "allow"
-match_same_arms                   = "allow"
-missing_assert_message            = "allow"
-missing_docs_in_private_items     = "allow"
-missing_errors_doc                = "allow"
-missing_inline_in_public_items    = "allow"
-missing_panics_doc                = "allow"
-missing_trait_methods             = "allow"
-mod_module_files                  = "allow"
-multiple_inherent_impl            = "allow"
-mutex_atomic                      = "allow"
-mutex_integer                     = "allow"
-new_without_default               = "allow"
-non_ascii_literal                 = "allow"
-panic                             = "allow"
-panic_in_result_fn                = "allow"
-partial_pub_fields                = "allow"
-print_stderr                      = "allow"
-print_stdout                      = "allow"
-pub_use                           = "allow"
-pub_with_shorthand                = "allow"
-pub_without_shorthand             = "allow"
-question_mark_used                = "allow"
-ref_patterns                      = "allow"
-renamed_function_params           = "allow"
-same_name_method                  = "allow"
-semicolon_outside_block           = "allow"
-separated_literal_suffix          = "allow"
-shadow_reuse                      = "allow"
-shadow_same                       = "allow"
-shadow_unrelated                  = "allow"
-single_call_fn                    = "allow"
-single_char_lifetime_names        = "allow"
-single_match_else                 = "allow"
-std_instead_of_alloc              = "allow"
-std_instead_of_core               = "allow"
-string_add                        = "allow"
-string_slice                      = "allow"
-todo                              = "allow"
-too_many_lines                    = "allow"
-try_err                           = "allow"
-unimplemented                     = "allow"
-unnecessary_safety_comment        = "allow"
-unnecessary_safety_doc            = "allow"
-unreachable                       = "allow"
-unwrap_in_result                  = "allow"
-unwrap_used                       = "allow"
-use_debug                         = "allow"
-wildcard_enum_match_arm           = "allow"
+# False positive:
+# clippy's build script check doesn't recognize workspace-inherited metadata
+# which means in our current workspace layout, we get pranked by Clippy.
+cargo_common_metadata = "allow"
+
+# In the honor of a recent Cloudflare regression
+# panic       = "deny"
+# unwrap_used = "deny"
+
+# Less dangerous, but we'd like to know
+# Those must be opt-in, and are fine ONLY in tests and examples. We *can* panic
+# in NDG (the binary crate), but it should be very deliberate
+expect_used   = "warn"
+print_stderr  = "warn"
+print_stdout  = "warn"
+todo          = "warn"
+unimplemented = "warn"
+unreachable   = "warn"

@@ -3,6 +3,7 @@ use std::{
     self,
     Write as _,
   },
+  fs,
   io::{
     self,
     Write as _,
@@ -62,21 +63,39 @@ fn real_main() -> Result<()> {
 
   let mut out = WriteFmt(io::stdout());
 
+  writeln!(
+    out,
+    "{arrows} {old}",
+    arrows = "<<<".bold(),
+    old = old_path.display(),
+  )?;
+  writeln!(
+    out,
+    "{arrows} {new}",
+    arrows = ">>>".bold(),
+    new = fs::canonicalize(&new_path)
+      .unwrap_or_else(|_| new_path.clone())
+      .display(),
+  )?;
+
   // Handle to the thread collecting closure size information.
   let closure_size_handle =
     dix::spawn_size_diff(old_path.clone(), new_path.clone());
 
-  let wrote = dix::write_paths_diffln(&mut out, &old_path, &new_path)?;
+  let wrote = dix::write_package_diff(&mut out, &old_path, &new_path)?;
 
-  let (size_old, size_new) = closure_size_handle
-    .join()
-    .map_err(|_| anyhow!("failed to get closure size due to thread error"))??;
+  let (size_old, size_new) = closure_size_handle.join().map_err(|_| {
+    anyhow!(
+      "failed to get closure size due to thread
+  error"
+    )
+  })??;
 
   if wrote > 0 {
     writeln!(out)?;
   }
 
-  dix::write_size_diffln(&mut out, size_old, size_new)?;
+  dix::write_size_diff(&mut out, size_old, size_new)?;
 
   Ok(())
 }

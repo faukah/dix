@@ -449,14 +449,12 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
 
   // Process all but the last element
   for i in 1..versions.len() {
-    if versions[i] == versions[result_index] {
+    if versions[i].name == versions[result_index].name {
       // Same version, increment count
       count += 1;
     } else {
       // Different version, finalize the previous one with count
-      if count > 1 {
-        write!(versions[result_index], " ×{count}").unwrap();
-      }
+      versions[result_index].amount = count;
 
       // Move to next position in result
       result_index += 1;
@@ -466,9 +464,7 @@ fn deduplicate_versions(versions: &mut Vec<Version>) {
   }
 
   // Finalize the last group
-  if count > 1 {
-    write!(versions[result_index], " ×{count}").unwrap();
-  }
+  versions[result_index].amount = count;
   result_index += 1;
 
   // Truncate the vector to the actual number of unique versions
@@ -557,10 +553,8 @@ fn collect_path_versions(
             .entry(name.into())
             .or_insert_with(|| (Vec::new(), Vec::new()));
 
-          // Select the appropriate version list (old or new)
           let list = if is_old { &mut entry.0 } else { &mut entry.1 };
 
-          // Add the version, using "<none>" if version is None
           list.push(
             version.unwrap_or_else(|| Version::from("<none>".to_owned())),
           );
@@ -664,12 +658,12 @@ fn fmt_version_diffs(
   let mut old_acc = String::with_capacity(
     old_versions
       .iter()
-      .fold(0, |acc, version| acc + version.to_string().len() + 2),
+      .fold(0, |acc, version| acc + version.name.len() + 2),
   );
   let mut new_acc = String::with_capacity(
     new_versions
       .iter()
-      .fold(0, |acc, version| acc + version.to_string().len() + 2),
+      .fold(0, |acc, version| acc + version.name.len() + 2),
   );
 
   let mut old_wrote = false;
@@ -755,12 +749,13 @@ fn fmt_single_version_diff(
   old_ver: &Version,
   new_ver: &Version,
 ) -> fmt::Result {
+  // Process version differences
   // Convert versions to piece vectors
   let old_parts: Vec<_> = old_ver.into_iter().collect();
   let new_parts: Vec<_> = new_ver.into_iter().collect();
 
-  // Early return for empty versions or identical versions
-  if (old_parts.is_empty() && new_parts.is_empty()) || old_parts == new_parts {
+  // Early return for empty versions or identical versions with same amounts
+  if (old_parts.is_empty() && new_parts.is_empty()) || (old_ver == new_ver) {
     return Ok(());
   }
 
@@ -823,11 +818,29 @@ fn fmt_single_version_diff(
     }
   }
 
+  // Process common suffix
   // Write common suffix (yellow)
   #[expect(clippy::redundant_closure_for_method_calls)]
   for piece in suffix {
     write_version_piece(old_acc, piece, |c| c.yellow())?;
     write_version_piece(new_acc, piece, |c| c.yellow())?;
+  }
+
+  // Handle version amount differences
+  if old_ver.amount == new_ver.amount {
+    if old_ver.amount > 1 {
+      // Same amount and greater than 1, display in yellow for both
+      write!(old_acc, " ×{}", (old_ver.amount.to_string().yellow()))?;
+      write!(new_acc, " ×{}", (new_ver.amount.to_string().yellow()))?;
+    }
+  } else {
+    // Different amounts
+    if old_ver.amount > 1 {
+      write!(old_acc, " ×{}", (old_ver.amount.to_string().red()))?;
+    }
+    if new_ver.amount > 1 {
+      write!(new_acc, " ×{}", (new_ver.amount.to_string().green()))?;
+    }
   }
 
   Ok(())
@@ -1009,10 +1022,6 @@ pub fn write_size_diffln(
 ///
 /// Returns a vector of Diff objects for all meaningful changes (filters out
 /// unchanged items)
-///
-/// # Panics
-///
-/// foo bar
 #[must_use]
 pub fn generate_diffs_from_paths<S: BuildHasher>(
   paths: HashMap<String, (Vec<Version>, Vec<Version>), S>,
@@ -1038,8 +1047,8 @@ pub fn generate_diffs_from_paths<S: BuildHasher>(
     let new_clone = new_versions.clone();
 
     // Create sets for efficient lookup
-    let old_set: HashSet<String> = old_clone.into_iter().map(|v| v.0).collect();
-    let new_set: HashSet<String> = new_clone.into_iter().map(|v| v.0).collect();
+    let old_set: HashSet<Version> = old_clone.into_iter().collect();
+    let new_set: HashSet<Version> = new_clone.into_iter().collect();
 
     // Find intersection (common versions)
     let common_set: HashSet<_> = old_set.intersection(&new_set).collect();
@@ -1050,13 +1059,13 @@ pub fn generate_diffs_from_paths<S: BuildHasher>(
     let mut unique_new = Vec::new();
 
     for v in old_versions {
-      if !new_set.contains(&v.0) {
+      if !new_set.contains(&v) {
         unique_old.push(v);
       }
     }
 
     for v in new_versions {
-      if !old_set.contains(&v.0) {
+      if !old_set.contains(&v) {
         unique_new.push(v);
       }
     }
@@ -1066,8 +1075,9 @@ pub fn generate_diffs_from_paths<S: BuildHasher>(
         (_, true, true) => continue,
         (0, true, false) => DiffStatus::Added,
         (0, false, true) => DiffStatus::Removed,
-        (_, true, false) => DiffStatus::Changed(Change::Upgraded),
-        (_, false, true) => DiffStatus::Changed(Change::Downgraded),
+        (_, true, false) | (_, false, true) => {
+          DiffStatus::Changed(Change::UpgradeDowngrade)
+        },
         (_, false, false) => {
           if let Some(status) =
             determine_change_status(&unique_old, &unique_new)
@@ -1265,11 +1275,11 @@ mod tests {
   fn match_version_lists_test() {
     use crate::version::Version;
     let version_list_a = [
-      Version("5.116.0".to_owned()),
-      Version("5.116.0-bin".to_owned()),
-      Version("6.16.0".to_owned()),
+      Version::new("5.116.0"),
+      Version::new("5.116.0-bin"),
+      Version::new("6.16.0"),
     ];
-    let version_list_b = [Version("6.17.0".to_owned())];
+    let version_list_b = [Version::new("6.17.0")];
 
     let matched = match_version_lists(&version_list_a, &version_list_b);
 
@@ -1295,10 +1305,10 @@ mod tests {
     let mut paths: HashMap<String, (Vec<Version>, Vec<Version>)> =
       HashMap::new();
 
-    let diff_1 = (
-      vec![Version("1.1.0".to_owned()), Version("1.3".to_owned())],
-      vec![Version("1.1.0".to_owned()), Version("1.4".to_owned())],
-    );
+    let diff_1 = (vec![Version::new("1.1.0"), Version::new("1.3")], vec![
+      Version::new("1.1.0"),
+      Version::new("1.4"),
+    ]);
     paths.insert("tmp".to_owned(), diff_1);
     let mut vec_1 = generate_diffs_from_paths(paths);
     add_selection_status(
@@ -1308,8 +1318,8 @@ mod tests {
     );
     let res_2 = Diff {
       name:                "tmp".to_owned(),
-      old:                 vec![Version("1.3".to_owned())],
-      new:                 vec![Version("1.4".to_owned())],
+      old:                 vec![Version::new("1.3")],
+      new:                 vec![Version::new("1.4")],
       status:              DiffStatus::Changed(Change::Upgraded),
       selection:           DerivationSelectionStatus::Unselected,
       has_common_versions: true,
@@ -1318,10 +1328,9 @@ mod tests {
 
     paths = HashMap::new();
 
-    let diff_2 = (
-      vec![Version("1.2.0".to_owned()), Version("1.5".to_owned())],
-      vec![Version("1.2.0".to_owned())],
-    );
+    let diff_2 = (vec![Version::new("1.2.0"), Version::new("1.5")], vec![
+      Version::new("1.2.0"),
+    ]);
     paths.insert("tmp".to_owned(), diff_2);
     let mut vec_2 = generate_diffs_from_paths(paths);
     add_selection_status(
@@ -1331,9 +1340,9 @@ mod tests {
     );
     let res_2 = Diff {
       name:                "tmp".to_owned(),
-      old:                 vec![Version("1.5".to_owned())],
+      old:                 vec![Version::new("1.5")],
       new:                 vec![],
-      status:              DiffStatus::Changed(Change::Downgraded),
+      status:              DiffStatus::Changed(Change::UpgradeDowngrade),
       selection:           DerivationSelectionStatus::Unselected,
       has_common_versions: true,
     };

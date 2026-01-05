@@ -20,9 +20,9 @@ jobs:
           - system: x86_64-linux
             runner_label: ubuntu-latest
           - system: x86_64-darwin
-            runner_label: macos-13
+            runner_label: macos-15-intel
           - system: aarch64-darwin
-            runner_label: macos-14
+            runner_label: macos-latest
 
     steps:
       - name: Checkout Repository
@@ -35,7 +35,7 @@ jobs:
           extra-conf: lazy-trees = true
 
       - name: Set Up Cachix
-        uses: cachix/cachix-action@v14
+        uses: cachix/cachix-action@v16
         with:
           name: dix
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}

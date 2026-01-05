@@ -29,8 +29,8 @@ yansi               = { features = [ "detect-env", "detect-tty" ], version = "1.
 proptest = "1.6.0"
 
 [profile.release]
-lto           = "fat"
-opt-level     = 3
+lto       = "fat"
+opt-level = 3
 
 # See:
 #  <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>
@@ -57,7 +57,6 @@ implicit_return                      = "allow"
 infinite_loop                        = "warn"
 map_with_unused_argument_over_ranges = "warn"
 missing_docs_in_private_items        = "allow"
-multiple_crate_versions              = "allow" # :(
 non_ascii_literal                    = "allow"
 non_std_lazy_statics                 = "warn"
 pathbuf_init_then_push               = "warn"
@@ -76,18 +75,6 @@ unnecessary_safety_comment           = "warn"
 unused_result_ok                     = "warn"
 unused_trait_names                   = "allow"
 
-# False positive:
-# clippy's build script check doesn't recognize workspace-inherited metadata
-# which means in our current workspace layout, we get pranked by Clippy.
-cargo_common_metadata = "allow"
-
-# In the honor of a recent Cloudflare regression
-# panic       = "deny"
-# unwrap_used = "deny"
-
-# Less dangerous, but we'd like to know
-# Those must be opt-in, and are fine ONLY in tests and examples. We *can* panic
-# in NDG (the binary crate), but it should be very deliberate
 expect_used   = "warn"
 print_stderr  = "warn"
 print_stdout  = "warn"

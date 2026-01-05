@@ -17,28 +17,34 @@ use derive_more::{
 /// some additional handling for various separators and special component names.
 /// The comparison is done by parsing the string into components and comparing
 /// them individually.
-/// Constants for version parsing and comparison
 pub const VERSION_SEPARATORS: &[char] =
   &['.', '-', '_', '+', '*', '=', '×', ' '];
 
-#[derive(Display, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Version(pub String);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Version {
+  pub name:   String,
+  pub amount: usize,
+}
 
 impl Version {
-  /// Create a new Version from a string
   pub fn new(version: impl Into<String>) -> Self {
-    Self(version.into())
+    Self {
+      name:   version.into(),
+      amount: 1,
+    }
   }
 
-  /// Returns a string slice of the entire version
   #[must_use]
-  pub fn as_str(&self) -> &str {
-    &self.0
+  pub fn as_str(&self) -> String {
+    if self.amount > 1 {
+      format!("{} ×{}", self.name, self.amount)
+    } else {
+      self.name.clone()
+    }
   }
 
-  /// Returns an iterator over the components of this version
   pub fn components(&self) -> impl Iterator<Item = VersionComponent<'_>> {
-    VersionIter::from(self.0.as_str()).filter_map(VersionPiece::component)
+    VersionIter::from(self.name.as_str()).filter_map(VersionPiece::component)
   }
 }
 
@@ -46,19 +52,19 @@ impl FromStr for Version {
   type Err = Infallible;
 
   fn from_str(s: &str) -> Result<Self, Self::Err> {
-    Ok(Self(s.to_owned()))
+    Ok(Self::new(s))
   }
 }
 
 impl From<String> for Version {
   fn from(s: String) -> Self {
-    Self(s)
+    Self::new(s)
   }
 }
 
 impl<'a> From<&'a str> for Version {
   fn from(s: &'a str) -> Self {
-    Self(s.to_owned())
+    Self::new(s)
   }
 }
 
@@ -83,7 +89,7 @@ impl<'a> IntoIterator for &'a Version {
   type IntoIter = VersionIter<'a>;
 
   fn into_iter(self) -> Self::IntoIter {
-    VersionIter::from(self.0.as_str())
+    VersionIter::from(self.name.as_str())
   }
 }
 
@@ -228,13 +234,23 @@ impl<'a> VersionPiece<'a> {
   }
 }
 
-// Implement fmt::Write for Version to support write! macro
+// Implement Display for Version
+impl fmt::Display for Version {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    if self.amount > 1 {
+      write!(f, "{} ×{}", self.name, self.amount)
+    } else {
+      f.write_str(&self.name)
+    }
+  }
+}
+
 impl fmt::Write for Version {
   fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
-    fmt::write(&mut self.0, args)
+    fmt::write(&mut self.name, args)
   }
   fn write_str(&mut self, s: &str) -> fmt::Result {
-    (self.0).write_str(s)
+    (self.name).write_str(s)
   }
 }
 

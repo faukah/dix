@@ -171,17 +171,12 @@ pub fn connect() -> Result<Connection> {
   //
   // [0]: 256MB, enough to fit the whole DB (at least on my system - Dragyx).
   // [1]: Always store temporary tables in memory.
-  // [2]: Disable the rollback journal completely. Since we only read data
-  // and don't change the database contents in any way, this is acceptable.
-  // Stops issues like <https://github.com/faukah/dix/issues/47> from happening.
-  // <https://sqlite.org/pragma.html#pragma_journal_mode>
   inner
     .execute_batch(
       "
         PRAGMA mmap_size=268435456; -- See [0].
         PRAGMA temp_store=2; -- See [1].
         PRAGMA query_only;
-        PRAGMA journal_mode=OFF; -- See [2].
       ",
     )
     .with_context(|| {

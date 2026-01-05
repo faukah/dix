@@ -43,11 +43,11 @@ nvd, with a few things like version diffing done better.
 Furthermore, many thanks to the amazing people who made this projects possible
 by contributing code and offering advice:
 
-- [@RGBCube](https://github.com/RGBCube) - Giving the codebase a deep scrub.
 - [@Dragyx](https://github.com/Dragyx) - Cool SQL queries. Much of dix's speed
   is thanks to him.
 - [@NotAShelf](https://github.com/NotAShelf) - Implementing proper error
   handling.
+- [@RGBCube](https://github.com/RGBCube) - Giving the codebase a deep scrub.
 
 ## License
 

@@ -133,7 +133,7 @@ where
 ///
 /// and sets some basic settings
 pub fn connect() -> Result<Connection> {
-  const DATABASE_PATH: &str = "/nix/var/nix/db/db.sqlite";
+  const DATABASE_PATH: &str = "file:/nix/var/nix/db/db.sqlite?immutable=1";
 
   let inner = rusqlite::Connection::open_with_flags(
     DATABASE_PATH,

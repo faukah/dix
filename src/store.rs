@@ -14,7 +14,7 @@ use anyhow::{
   Result,
   anyhow,
 };
-use derive_more::Deref;
+use log::warn;
 use ouroboros::self_referencing;
 use rusqlite::{
   CachedStatement,
@@ -28,10 +28,38 @@ use crate::{
   DerivationId,
   StorePath,
 };
+/// the normal database connection
+pub const DATABASE_PATH: &str = "file:/nix/var/nix/db/db.sqlite";
+/// a backup database connection that can access the database
+/// even in a read-only environment
+///
+/// might product incorrect results as the connection is not guaranteed
+/// to be the only one accessing the database. (There might be e.g. a
+/// nixos-rebuild modifying the database)
+pub const DATABASE_PATH_IMMUTABLE: &str =
+  "file:/nix/var/nix/db/db.sqlite?immutable=1";
 
-#[derive(Deref)]
-/// A Nix database connection.
-pub struct Connection(rusqlite::Connection);
+/// defines an interface for interacting with a Nix database.
+///
+/// This allows us to construct a frontend that can fall back
+/// to e.g. shell commands should something go wrong.
+pub(crate) trait StoreFrontend {
+  fn connect(&mut self) -> Result<()>;
+  fn close(&mut self) -> Result<()>;
+  fn query_closure_size(&self, path: &StorePath) -> Result<Size>;
+  fn query_system_derivations(
+    &self,
+    system: &Path,
+  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>>;
+  fn query_dependents(
+    &self,
+    path: &Path,
+  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>>;
+  fn query_dependency_graph(
+    &self,
+    path: &StorePath,
+  ) -> Result<impl Iterator<Item = (DerivationId, DerivationId)>>;
+}
 
 type FilterOkFunc<T> = fn(Result<T, rusqlite::Error>) -> Option<T>;
 
@@ -51,8 +79,9 @@ where
   /// The actual iterator we generate from the query iterator
   ///
   /// note that the concrete datatype is rather complicated,
-  /// since we wan't to avoid a box, since we currently only have a single
-  /// way to deal wihh queries that return multiple rows
+  /// since we currently only have a single
+  /// way to deal with queries that return multiple rows and
+  /// we therefore don't need to use a box.
   #[borrows(mut stmt)]
   #[not_covariant]
   inner: FilterMap<Peekable<MappedRows<'this, F>>, FilterOkFunc<T>>,
@@ -129,63 +158,6 @@ where
   }
 }
 
-/// Connects to the Nix database
-///
-/// and sets some basic settings
-pub fn connect() -> Result<Connection> {
-  const DATABASE_PATH: &str = "file:/nix/var/nix/db/db.sqlite?immutable=1";
-
-  let inner = rusqlite::Connection::open_with_flags(
-    DATABASE_PATH,
-    OpenFlags::SQLITE_OPEN_READ_ONLY // We only run queries, safeguard against corrupting the DB.
-      | OpenFlags::SQLITE_OPEN_NO_MUTEX // Part of the default flags, rusqlite takes care of locking anyways.
-      | OpenFlags::SQLITE_OPEN_URI,
-  )
-  .with_context(|| {
-    format!("failed to connect to Nix database at {DATABASE_PATH}")
-  })?;
-
-  // Perform a batched query to set some settings using PRAGMA
-  // the main performance bottleneck when dix was run before
-  // was that the database file has to be brought from disk into
-  // memory.
-  //
-  // We read a large part of the DB anyways in each query,
-  // so it makes sense to set aside a large region of memory-mapped
-  // I/O prevent incurring page faults which can be done using
-  // `mmap_size`.
-  //
-  // This made a performance difference of about 500ms (but only
-  // when it was first run for a long time!).
-  //
-  // The file pages of the store can be evicted from main memory
-  // using:
-  //
-  // ```bash
-  // dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0
-  // ```
-  //
-  // If you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
-  //
-  // Documentation about the settings can be found here: <https://www.sqlite.org/pragma.html>
-  //
-  // [0]: 256MB, enough to fit the whole DB (at least on my system - Dragyx).
-  // [1]: Always store temporary tables in memory.
-  inner
-    .execute_batch(
-      "
-        PRAGMA mmap_size=268435456; -- See [0].
-        PRAGMA temp_store=2; -- See [1].
-        PRAGMA query_only;
-      ",
-    )
-    .with_context(|| {
-      format!("failed to cache Nix database at {DATABASE_PATH}")
-    })?;
-
-  Ok(Connection(inner))
-}
-
 fn path_to_canonical_string(path: &Path) -> Result<String> {
   let path = path.canonicalize().with_context(|| {
     format!(
@@ -205,11 +177,39 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
   Ok(path)
 }
 
-impl Connection {
+/// A Nix database connection.
+pub struct DBConnection<'a> {
+  path: &'a str,
+  conn: Option<rusqlite::Connection>,
+}
+
+impl<'a> DBConnection<'a> {
+  /// create a new connection
+  pub fn new(path: &'a str) -> DBConnection<'a> {
+    DBConnection { path, conn: None }
+  }
+  /// returns a reference to the inner connection
+  ///
+  /// raises an error if the connection has not been established
+  fn get_inner(&self) -> Result<&rusqlite::Connection> {
+    self
+      .conn
+      .as_ref()
+      .ok_or_else(|| anyhow!("Attempted to use database before connecting."))
+  }
+  /// returns a mutable reference to the inner connection
+  ///
+  /// raises an error if the connection has not been established
+  fn get_inner_mut(&mut self) -> Result<&mut rusqlite::Connection> {
+    self
+      .conn
+      .as_mut()
+      .ok_or_else(|| anyhow!("Attempted to use database before connecting."))
+  }
   /// Executes a query that returns multiple rows and returns
   /// an iterator over them where the `map` is used to map
   /// the rows to `T`.
-  pub fn execute_row_query_with_path<T, M>(
+  pub(crate) fn execute_row_query_with_path<T, M>(
     &self,
     query: &str,
     path: &Path,
@@ -220,17 +220,106 @@ impl Connection {
     M: Fn(&Row) -> rusqlite::Result<T>,
   {
     let path = path_to_canonical_string(path)?;
-    let stmt = self.prepare_cached(query)?;
+    let stmt = self.get_inner()?.prepare_cached(query)?;
     QueryIterator::try_new(stmt, [path], map)
+  }
+}
+
+// TODO: is this a good idea?
+impl Drop for DBConnection<'_> {
+  /// close the connection when the DB is closed
+  fn drop(&mut self) {
+    // try to close the connection
+    if let Some(conn) = self.conn.take()
+      && let Err(err) = conn.close()
+    {
+      warn!(
+        "Tried closing database on drop but encountered error: {:?}",
+        err
+      )
+    }
+  }
+}
+
+impl StoreFrontend for DBConnection<'_> {
+  /// Connects to the Nix database
+  ///
+  /// and sets some basic settings
+  fn connect(&mut self) -> Result<()> {
+    let inner = rusqlite::Connection::open_with_flags(
+      self.path,
+      OpenFlags::SQLITE_OPEN_READ_ONLY // We only run queries, safeguard against corrupting the DB.
+      | OpenFlags::SQLITE_OPEN_NO_MUTEX // Part of the default flags, rusqlite takes care of locking anyways.
+      | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .with_context(|| {
+      format!("failed to connect to Nix database at {DATABASE_PATH}")
+    })?;
+
+    // Perform a batched query to set some settings using PRAGMA
+    // the main performance bottleneck when dix was run before
+    // was that the database file has to be brought from disk into
+    // memory.
+    //
+    // We read a large part of the DB anyways in each query,
+    // so it makes sense to set aside a large region of memory-mapped
+    // I/O prevent incurring page faults which can be done using
+    // `mmap_size`.
+    //
+    // This made a performance difference of about 500ms (but only
+    // when it was first run for a long time!).
+    //
+    // The file pages of the store can be evicted from main memory
+    // using:
+    //
+    // ```bash
+    // dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0
+    // ```
+    //
+    // If you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
+    //
+    // Documentation about the settings can be found here: <https://www.sqlite.org/pragma.html>
+    //
+    // [0]: 256MB, enough to fit the whole DB (at least on my system - Dragyx).
+    // [1]: Always store temporary tables in memory.
+    inner
+      .execute_batch(
+        "
+        PRAGMA mmap_size=268435456; -- See [0].
+        PRAGMA temp_store=2; -- See [1].
+        PRAGMA query_only;
+      ",
+      )
+      .with_context(|| {
+        format!("failed to cache Nix database at {}", self.path)
+      })?;
+
+    self.conn = Some(inner);
+    Ok(())
+  }
+
+  /// close the inner connection to the database
+  fn close(&mut self) -> Result<()> {
+    // TODO: we might want to consider dropping self (and follow how the inner
+    // conn works)
+    let conn = self.conn.take().ok_or_else(|| {
+      anyhow!(
+        "Tried to close connection to {} that does not exist",
+        self.path
+      )
+    })?;
+    conn.close().map_err(|(_conn, err)| {
+      anyhow::Error::from(err).context("failed to close Nix database")
+    })
   }
 
   /// Gets the total closure size of the given store path by summing up the nar
   /// size of all dependent derivations.
-  pub fn query_closure_size(&self, path: &Path) -> Result<Size> {
+  fn query_closure_size(&self, path: &StorePath) -> Result<Size> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
-          SELECT id 
+          SELECT id
           FROM ValidPaths
           WHERE path = ?
         UNION
@@ -244,6 +333,7 @@ impl Connection {
     let path = path_to_canonical_string(path)?;
 
     let closure_size = self
+      .get_inner()?
       .prepare_cached(QUERY)?
       .query_row([path], |row| Ok(Size::from_bytes(row.get::<_, i64>(0)?)))?;
 
@@ -253,7 +343,7 @@ impl Connection {
   /// Gets the derivations that are directly included in the system derivation.
   ///
   /// Will not work on non-system derivations.
-  pub fn query_system_derivations(
+  fn query_system_derivations(
     &self,
     system: &Path,
   ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>> {
@@ -286,14 +376,14 @@ impl Connection {
   }
 
   /// Gathers all derivations that the given profile path depends on.
-  pub fn query_dependents(
+  fn query_dependents(
     &self,
     path: &Path,
   ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
-          SELECT id 
+          SELECT id
           FROM ValidPaths
           WHERE path = ?
         UNION
@@ -317,14 +407,14 @@ impl Connection {
   /// You might want to build an adjacency list from the resulting
   /// edges.
   #[expect(dead_code)]
-  pub fn query_dependency_graph(
+  fn query_dependency_graph(
     &self,
     path: &StorePath,
   ) -> Result<impl Iterator<Item = (DerivationId, DerivationId)>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p, c) AS (
-          SELECT id as par, reference as chd 
+          SELECT id as par, reference as chd
           FROM ValidPaths
           JOIN Refs ON referrer = id
           WHERE path = ?

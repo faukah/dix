@@ -43,7 +43,10 @@ use yansi::{
 use crate::{
   StorePath,
   Version,
-  store,
+  store::{
+    self,
+    StoreFrontend,
+  },
   version::{
     VersionComponent,
     VersionPiece,
@@ -188,7 +191,8 @@ pub fn write_package_diff(
   path_old: &Path,
   path_new: &Path,
 ) -> Result<usize> {
-  let connection = store::connect()?;
+  let mut connection = store::DBConnection::new(store::DATABASE_PATH);
+  connection.connect()?;
 
   // Query dependencies for old path
   let paths_old = connection
@@ -947,11 +951,12 @@ pub fn spawn_size_diff(
   log::debug!("calculating closure sizes in background");
 
   thread::spawn(move || {
-    let connection = store::connect()?;
+    let mut connection = store::DBConnection::new(store::DATABASE_PATH);
+    connection.connect()?;
 
     Ok::<_, Error>((
-      connection.query_closure_size(&path_old)?,
-      connection.query_closure_size(&path_new)?,
+      connection.query_closure_size(&path_old.try_into()?)?,
+      connection.query_closure_size(&path_new.try_into()?)?,
     ))
   })
 }

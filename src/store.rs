@@ -1,6 +1,10 @@
 #![allow(clippy::mem_forget)]
 
 use std::{
+  fmt::{
+    self,
+    Display,
+  },
   iter::{
     FilterMap,
     Iterator,
@@ -43,22 +47,24 @@ pub const DATABASE_PATH_IMMUTABLE: &str =
 ///
 /// This allows us to construct a frontend that can fall back
 /// to e.g. shell commands should something go wrong.
-pub(crate) trait StoreFrontend {
+pub(crate) trait StoreFrontend<'a> {
   fn connect(&mut self) -> Result<()>;
+  fn connected(&self) -> bool;
   fn close(&mut self) -> Result<()>;
-  fn query_closure_size(&self, path: &StorePath) -> Result<Size>;
+  fn query_closure_size(&self, path: &Path) -> Result<Size>;
   fn query_system_derivations(
     &self,
     system: &Path,
-  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>>;
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>>;
   fn query_dependents(
     &self,
     path: &Path,
-  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>>;
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>>;
+  #[expect(dead_code)]
   fn query_dependency_graph(
     &self,
-    path: &StorePath,
-  ) -> Result<impl Iterator<Item = (DerivationId, DerivationId)>>;
+    path: &Path,
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>>;
 }
 
 type FilterOkFunc<T> = fn(Result<T, rusqlite::Error>) -> Option<T>;
@@ -178,9 +184,16 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 }
 
 /// A Nix database connection.
+#[derive(Debug)]
 pub struct DBConnection<'a> {
   path: &'a str,
   conn: Option<rusqlite::Connection>,
+}
+
+impl Display for DBConnection<'_> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "DBConnection({})", self.path)
+  }
 }
 
 impl<'a> DBConnection<'a> {
@@ -214,20 +227,21 @@ impl<'a> DBConnection<'a> {
     query: &str,
     path: &Path,
     map: M,
-  ) -> Result<impl Iterator<Item = T>>
+  ) -> Result<Box<dyn Iterator<Item = T> + '_>>
   where
     T: 'static,
-    M: Fn(&Row) -> rusqlite::Result<T>,
+    M: Fn(&Row) -> rusqlite::Result<T> + 'static,
   {
     let path = path_to_canonical_string(path)?;
     let stmt = self.get_inner()?.prepare_cached(query)?;
-    QueryIterator::try_new(stmt, [path], map)
+    let iter = QueryIterator::try_new(stmt, [path], map)?;
+    Ok(Box::new(iter))
   }
 }
 
 // TODO: is this a good idea?
 impl Drop for DBConnection<'_> {
-  /// close the connection when the DB is closed
+  // close the connection if it is still open
   fn drop(&mut self) {
     // try to close the connection
     if let Some(conn) = self.conn.take()
@@ -241,7 +255,10 @@ impl Drop for DBConnection<'_> {
   }
 }
 
-impl StoreFrontend for DBConnection<'_> {
+impl<'a> StoreFrontend<'a> for DBConnection<'_> {
+  fn connected(&self) -> bool {
+    self.conn.is_some()
+  }
   /// Connects to the Nix database
   ///
   /// and sets some basic settings
@@ -315,7 +332,7 @@ impl StoreFrontend for DBConnection<'_> {
 
   /// Gets the total closure size of the given store path by summing up the nar
   /// size of all dependent derivations.
-  fn query_closure_size(&self, path: &StorePath) -> Result<Size> {
+  fn query_closure_size(&self, path: &Path) -> Result<Size> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
@@ -346,7 +363,7 @@ impl StoreFrontend for DBConnection<'_> {
   fn query_system_derivations(
     &self,
     system: &Path,
-  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>> {
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
     const QUERY: &str = "
       WITH
         systemderiv AS (
@@ -379,7 +396,7 @@ impl StoreFrontend for DBConnection<'_> {
   fn query_dependents(
     &self,
     path: &Path,
-  ) -> Result<impl Iterator<Item = (DerivationId, StorePath)>> {
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
@@ -406,11 +423,10 @@ impl StoreFrontend for DBConnection<'_> {
   ///
   /// You might want to build an adjacency list from the resulting
   /// edges.
-  #[expect(dead_code)]
   fn query_dependency_graph(
     &self,
-    path: &StorePath,
-  ) -> Result<impl Iterator<Item = (DerivationId, DerivationId)>> {
+    path: &Path,
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p, c) AS (
@@ -428,5 +444,155 @@ impl StoreFrontend for DBConnection<'_> {
     self.execute_row_query_with_path(QUERY, path, |row| {
       Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?)))
     })
+  }
+}
+
+/// wrapper trait for debug information
+pub trait StoreFrontendPrintable<'a>: StoreFrontend<'a> + Display {}
+
+impl<'a, T> StoreFrontendPrintable<'a> for T where T: StoreFrontend<'a> + Display
+{}
+
+/// combines multiple store frontends by falling back to the next one if the
+/// current one fails
+///
+/// currently, the first frontend that works when connecting is used
+pub struct CombinedStoreFrontend<'a> {
+  frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>,
+}
+
+impl<'a> CombinedStoreFrontend<'a> {
+  pub fn new(frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>) -> Self {
+    Self { frontends }
+  }
+  // tries to execute a query until it succeeds all frontends have been tried
+  fn fallback_query<'b, F, Ret>(&'b self, query: F, path: &Path) -> Result<Ret>
+  where
+    F: Fn(&'b Box<dyn StoreFrontendPrintable<'a>>, &Path) -> Result<Ret>,
+  {
+    let mut combined_err: Option<anyhow::Error> = None;
+    // attempt to cycle through frontends until a successful query is made
+    for (i, frontend) in self.frontends.iter().enumerate() {
+      let res = query(frontend, path);
+      match res {
+        Ok(_) => return res,
+        Err(err) => {
+          warn!(
+            "Failed to query path {path:?} on current frontend {frontend} \
+             ({i}): {}",
+            &err
+          );
+          combined_err = match combined_err {
+            Some(combined) => Some(combined.context(err)),
+            None => Some(err),
+          };
+        },
+      }
+    }
+    warn!("All store frontends for path {path:?} failed");
+    Err(combined_err.unwrap_or_else(|| anyhow!("No internal stores to query.")))
+  }
+}
+
+impl<'a> Default for CombinedStoreFrontend<'a> {
+  fn default() -> Self {
+    Self {
+      frontends: vec![
+        Box::new(DBConnection::new(DATABASE_PATH)),
+        Box::new(DBConnection::new(DATABASE_PATH_IMMUTABLE)),
+      ],
+    }
+  }
+}
+
+impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
+  /// connects to all frontends. Returns an error if all frontends fail
+  fn connect(&mut self) -> Result<()> {
+    let mut combined_err: Option<anyhow::Error> = None;
+    let mut any_succeeded = false;
+    // connect, collecting the errors as we go
+    for (i, frontend) in self.frontends.iter_mut().enumerate() {
+      if let Err(err) = frontend.connect() {
+        warn!(
+          "Unable to connect to store frontend {i}: {frontend}, trying next. \
+           (error: {err})"
+        );
+        combined_err = match combined_err {
+          Some(combined) => Some(combined.context(err)),
+          None => Some(err),
+        }
+      } else {
+        any_succeeded = true;
+      }
+    }
+    // warn about encountered errors, even though there are fallbacks
+    if let Some(err) = &combined_err
+      && any_succeeded
+    {
+      warn!("Some frontends failed to connect: {err}")
+    }
+    if any_succeeded {
+      Ok(())
+    } else {
+      combined_err =
+        combined_err.map(|err| err.context("All frontends failed to connect."));
+      Err(
+        combined_err.unwrap_or_else(|| anyhow!("No frontends to connect to.")),
+      )
+    }
+  }
+
+  /// true if any frontend is connected
+  fn connected(&self) -> bool {
+    self.frontends.iter().any(|frontend| frontend.connected())
+  }
+
+  /// closes all connected frontends
+  ///
+  /// TODO: warn about errors
+  fn close(&mut self) -> Result<()> {
+    for frontend in &mut self.frontends {
+      if frontend.connected() {
+        frontend.close()?;
+      }
+    }
+    Ok(())
+  }
+
+  fn query_closure_size(&self, path: &Path) -> Result<Size> {
+    self.fallback_query(
+      |frontend, path| (**frontend).query_closure_size(path),
+      path,
+    )
+  }
+
+  fn query_system_derivations(
+    &self,
+    system: &Path,
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+    self.fallback_query(
+      |frontend, system| (**frontend).query_system_derivations(system),
+      system,
+    )
+  }
+
+  fn query_dependents(
+    &self,
+    path: &Path,
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+    self.fallback_query(
+      |frontend, path| (**frontend).query_dependents(path),
+      path,
+    )
+  }
+
+  fn query_dependency_graph(
+    &self,
+    path: &Path,
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>> {
+    self.fallback_query(
+      |frontend, path| (**frontend).query_dependency_graph(path),
+      path,
+    )
   }
 }

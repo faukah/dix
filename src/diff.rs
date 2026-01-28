@@ -191,7 +191,7 @@ pub fn write_package_diff(
   path_old: &Path,
   path_new: &Path,
 ) -> Result<usize> {
-  let mut connection = store::DBConnection::new(store::DATABASE_PATH);
+  let mut connection = store::CombinedStoreFrontend::default();
   connection.connect()?;
 
   // Query dependencies for old path
@@ -951,12 +951,12 @@ pub fn spawn_size_diff(
   log::debug!("calculating closure sizes in background");
 
   thread::spawn(move || {
-    let mut connection = store::DBConnection::new(store::DATABASE_PATH);
+    let mut connection = store::CombinedStoreFrontend::default();
     connection.connect()?;
 
     Ok::<_, Error>((
-      connection.query_closure_size(&path_old.try_into()?)?,
-      connection.query_closure_size(&path_new.try_into()?)?,
+      connection.query_closure_size(&path_old)?,
+      connection.query_closure_size(&path_new)?,
     ))
   })
 }

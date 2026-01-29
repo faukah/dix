@@ -263,7 +263,7 @@ impl<'a> StoreFrontend<'a> for DBConnection<'_> {
       | OpenFlags::SQLITE_OPEN_URI,
     )
     .with_context(|| {
-      format!("failed to connect to Nix database at {DATABASE_PATH}")
+      format!("failed to connect to Nix database at {}", self.path)
     })?;
 
     // Perform a batched query to set some settings using PRAGMA
@@ -453,16 +453,11 @@ impl<'a, T> StoreFrontendPrintable<'a> for T where T: StoreFrontend<'a> + Displa
 pub struct CombinedStoreFrontend<'a> {
   /// the underlying store frontend implementations
   frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>,
-  /// tracks which stores are connected
-  connected: Vec<bool>,
 }
 
 impl<'a> CombinedStoreFrontend<'a> {
   pub fn new(frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>) -> Self {
-    Self {
-      connected: vec![false; frontends.len()],
-      frontends,
-    }
+    Self { frontends }
   }
   // tries to execute a query until it succeeds or all connected frontends have
   // been tried
@@ -473,7 +468,7 @@ impl<'a> CombinedStoreFrontend<'a> {
     let mut combined_err: Option<anyhow::Error> = None;
     // attempt to cycle through frontends until a successful query is made
     for (i, frontend) in self.frontends.iter().enumerate() {
-      if !self.connected[i] {
+      if !frontend.connected() {
         warn!(
           "Skipping frontend {i} ({frontend}) in query {path:?}: not connected"
         );
@@ -524,11 +519,9 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
           Some(combined) => Some(combined.context(err)),
           None => Some(err),
         }
-      } else {
-        self.connected[i] = true;
       }
     }
-    let any_succeeded = self.connected.iter().any(|x| *x);
+    let any_succeeded = self.frontends.iter().any(|f| f.connected());
     // warn about encountered errors, even though there are fallbacks
     if let Some(err) = &combined_err
       && any_succeeded
@@ -555,10 +548,9 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
   ///
   /// TODO: warn about errors
   fn close(&mut self) -> Result<()> {
-    for (i, frontend) in self.frontends.iter_mut().enumerate() {
+    for frontend in self.frontends.iter_mut() {
       if frontend.connected() {
         frontend.close()?;
-        self.connected[i] = false;
       }
     }
     Ok(())

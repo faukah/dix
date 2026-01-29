@@ -47,7 +47,7 @@ pub const DATABASE_PATH_IMMUTABLE: &str =
 ///
 /// This allows us to construct a frontend that can fall back
 /// to e.g. shell commands should something go wrong.
-pub(crate) trait StoreFrontend<'a> {
+pub trait StoreFrontend<'a> {
   fn connect(&mut self) -> Result<()>;
   fn connected(&self) -> bool;
   fn close(&mut self) -> Result<()>;

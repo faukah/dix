@@ -49,9 +49,7 @@ pub const DATABASE_PATH_IMMUTABLE: &str =
 /// to e.g. shell commands should something go wrong.
 pub(crate) trait StoreFrontend<'a> {
   fn connect(&mut self) -> Result<()>;
-  #[allow(dead_code)]
   fn connected(&self) -> bool;
-  #[allow(dead_code)]
   fn close(&mut self) -> Result<()>;
   fn query_closure_size(&self, path: &Path) -> Result<Size>;
   fn query_system_derivations(

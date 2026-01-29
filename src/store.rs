@@ -37,7 +37,7 @@ pub const DATABASE_PATH: &str = "file:/nix/var/nix/db/db.sqlite";
 /// a backup database connection that can access the database
 /// even in a read-only environment
 ///
-/// might product incorrect results as the connection is not guaranteed
+/// might produce incorrect results as the connection is not guaranteed
 /// to be the only one accessing the database. (There might be e.g. a
 /// nixos-rebuild modifying the database)
 pub const DATABASE_PATH_IMMUTABLE: &str =

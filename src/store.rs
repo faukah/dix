@@ -32,18 +32,18 @@ use crate::{
   DerivationId,
   StorePath,
 };
-/// the normal database connection
+/// The normal database connection
 pub const DATABASE_PATH: &str = "file:/nix/var/nix/db/db.sqlite";
-/// a backup database connection that can access the database
+/// A backup database connection that can access the database
 /// even in a read-only environment
 ///
-/// might produce incorrect results as the connection is not guaranteed
+/// This might produce incorrect results as the connection is not guaranteed
 /// to be the only one accessing the database. (There might be e.g. a
-/// nixos-rebuild modifying the database)
+/// `nixos-rebuild` modifying the database)
 pub const DATABASE_PATH_IMMUTABLE: &str =
   "file:/nix/var/nix/db/db.sqlite?immutable=1";
 
-/// defines an interface for interacting with a Nix database.
+/// Defines an interface for interacting with a Nix database.
 ///
 /// This allows us to construct a frontend that can fall back
 /// to e.g. shell commands should something go wrong.
@@ -84,7 +84,7 @@ where
   stmt:  CachedStatement<'conn>,
   /// The actual iterator we generate from the query iterator
   ///
-  /// note that the concrete datatype is rather complicated,
+  /// Note that the concrete datatype is rather complicated
   /// since we currently only have a single
   /// way to deal with queries that return multiple rows and
   /// we therefore don't need to use a box.
@@ -197,7 +197,7 @@ impl Display for DBConnection<'_> {
 }
 
 impl<'a> DBConnection<'a> {
-  /// create a new connection
+  /// Create a new connection.
   pub fn new(path: &'a str) -> DBConnection<'a> {
     DBConnection { path, conn: None }
   }
@@ -447,11 +447,11 @@ impl<'a, T> StoreFrontendPrintable<'a> for T where T: StoreFrontend<'a> + Displa
 {}
 
 /// combines multiple store frontends by falling back to the next one if the
-/// current one fails
+/// current one fails.
 ///
-/// currently, the first frontend that works when connecting is used
+/// Currently, the first frontend that works when connecting is used.
 pub struct CombinedStoreFrontend<'a> {
-  /// the underlying store frontend implementations
+  /// The underlying store frontend implementations.
   frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>,
 }
 
@@ -539,14 +539,14 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
     }
   }
 
-  /// true if any frontend is connected
+  /// True if any frontend is connected.
   fn connected(&self) -> bool {
     self.frontends.iter().any(|frontend| frontend.connected())
   }
 
   /// Closes all connected frontends.
   ///
-  /// if some fail to close, the combined error is returned
+  /// If some fail to close, the combined error is returned.
   fn close(&mut self) -> Result<()> {
     let mut combined_err: Option<anyhow::Error> = None;
     for (i, frontend) in self.frontends.iter_mut().enumerate() {

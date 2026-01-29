@@ -232,9 +232,12 @@ impl<'a> DBConnection<'a> {
   }
 }
 
-// TODO: is this a good idea?
+/// makes sure the database tries to close the connection
+/// when being dropped. This is done anyways by the internal
+/// connection of rusqlite, but here the error gets logged should
+/// something go wrong.
 impl Drop for DBConnection<'_> {
-  // close the connection if it is still open
+  /// close the connection if it is still open
   fn drop(&mut self) {
     // try to close the connection
     if let Some(conn) = self.conn.take()

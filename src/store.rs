@@ -606,3 +606,156 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
     )
   }
 }
+
+#[cfg(test)]
+mod test {
+  use std::cell::RefCell;
+
+  use super::*;
+
+  struct MockStoreFrontend {
+    name:         String,
+    connected:    bool,
+    fail_connect: bool,
+    fail_query:   bool,
+    query_called: RefCell<bool>,
+  }
+
+  impl MockStoreFrontend {
+    fn new(name: &str, fail_connect: bool, fail_query: bool) -> Self {
+      Self {
+        name: name.to_string(),
+        connected: false,
+        fail_connect,
+        fail_query,
+        query_called: RefCell::new(false),
+      }
+    }
+  }
+
+  impl Display for MockStoreFrontend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      write!(f, "MockStoreFrontend({})", self.name)
+    }
+  }
+
+  impl<'a> StoreFrontend<'a> for MockStoreFrontend {
+    fn connect(&mut self) -> Result<()> {
+      if self.fail_connect {
+        Err(anyhow!("Connection failed"))
+      } else {
+        self.connected = true;
+        Ok(())
+      }
+    }
+
+    fn connected(&self) -> bool {
+      self.connected
+    }
+
+    fn close(&mut self) -> Result<()> {
+      self.connected = false;
+      Ok(())
+    }
+
+    fn query_closure_size(&self, _path: &Path) -> Result<Size> {
+      *self.query_called.borrow_mut() = true;
+      if self.fail_query {
+        Err(anyhow!("Query failed"))
+      } else {
+        Ok(Size::from_bytes(100))
+      }
+    }
+
+    fn query_system_derivations(
+      &self,
+      _system: &Path,
+    ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+      unimplemented!()
+    }
+
+    fn query_dependents(
+      &self,
+      _path: &Path,
+    ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+      unimplemented!()
+    }
+
+    fn query_dependency_graph(
+      &self,
+      _path: &Path,
+    ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>>
+    {
+      unimplemented!()
+    }
+  }
+
+  #[test]
+  fn test_connect_fallback() {
+    let f1 = Box::new(MockStoreFrontend::new("f1", true, false));
+    let f2 = Box::new(MockStoreFrontend::new("f2", false, false));
+    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+
+    assert!(combined.connect().is_ok());
+    assert!(combined.connected());
+  }
+
+  #[test]
+  fn test_connect_all_fail() {
+    let f1 = Box::new(MockStoreFrontend::new("f1", true, false));
+    let f2 = Box::new(MockStoreFrontend::new("f2", true, false));
+    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+
+    assert!(combined.connect().is_err());
+    assert!(!combined.connected());
+  }
+
+  #[test]
+  fn test_query_fallback() {
+    let f1 = Box::new(MockStoreFrontend::new("f1", false, true));
+    let f2 = Box::new(MockStoreFrontend::new("f2", false, false));
+    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+
+    combined.connect().unwrap();
+
+    let res = combined.query_closure_size(Path::new("/dummy"));
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), Size::from_bytes(100));
+  }
+
+  #[test]
+  fn test_query_skip_unconnected() {
+    let f1 = Box::new(MockStoreFrontend::new("f1", true, false));
+    let f2 = Box::new(MockStoreFrontend::new("f2", false, false));
+    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+
+    combined.connect().unwrap(); // f1 fails, f2 succeeds
+
+    let res = combined.query_closure_size(Path::new("/dummy"));
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), Size::from_bytes(100));
+
+    let f1 = Box::new(MockStoreFrontend::new("f1", true, false));
+    let f2 = Box::new(MockStoreFrontend::new("f2", true, false));
+    let f3 = Box::new(MockStoreFrontend::new("f3", false, false));
+    let mut combined = CombinedStoreFrontend::new(vec![f1, f2, f3]);
+    combined.connect().unwrap();
+
+    let res = combined.query_closure_size(Path::new("/dummy"));
+    assert_eq!(res.unwrap(), Size::from_bytes(100));
+    assert!(combined.connect().is_ok());
+    assert!(combined.connected());
+  }
+
+  #[test]
+  fn test_query_all_fail() {
+    let f1 = Box::new(MockStoreFrontend::new("f1", false, true));
+    let f2 = Box::new(MockStoreFrontend::new("f2", false, true));
+    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+
+    combined.connect().unwrap();
+
+    let res = combined.query_closure_size(Path::new("/dummy"));
+    assert!(res.is_err());
+  }
+}

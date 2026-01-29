@@ -10,7 +10,11 @@ use std::{
     Iterator,
     Peekable,
   },
-  path::Path,
+  path::{
+    Path,
+    PathBuf,
+  },
+  process::Command,
 };
 
 use anyhow::{
@@ -493,6 +497,7 @@ impl<'a> Default for CombinedStoreBackend<'a> {
     CombinedStoreBackend::new(vec![
       Box::new(DBConnection::new(DATABASE_PATH)),
       Box::new(DBConnection::new(DATABASE_PATH_IMMUTABLE)),
+      Box::new(CommandBackend),
     ])
   }
 }
@@ -591,6 +596,105 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
       |backend, path| (**backend).query_dependency_graph(path),
       path,
     )
+  }
+}
+
+#[derive(Debug, Default)]
+/// Uses nix shell commands to perform queries.
+///
+/// This is similar in implementation to the old `dix` in its early stages and
+/// is supposed to be a final fallback if the direct queries on the database
+/// fail. It is considerably slower than the direct queries and currently does
+/// not support querying the whole dependency graph.
+pub struct ShellBackend;
+
+impl Display for ShellBackend {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "ShellBackend")
+  }
+}
+
+fn shell_query<'a>(
+  args: &'a [&'a str],
+) -> Result<Box<dyn Iterator<Item = StorePath>>> {
+  let references = Command::new("nix-store").args(args).output();
+
+  let query = references?;
+  // We just collect into a vec, as this method of
+  // querying data is slow anyways
+  let mut paths = Vec::new();
+  for line in str::from_utf8(&query.stdout)?.lines() {
+    let path = StorePath::try_from(PathBuf::from(line))
+      .context(anyhow!("encountered invalid path in shell output: {line}"))?;
+    paths.push(path);
+  }
+
+  Ok(Box::new(paths.into_iter()))
+}
+
+impl<'a> StoreBackend<'a> for ShellBackend {
+  /// does nothing (we spawn a shell everytime)
+  fn connect(&mut self) -> Result<()> {
+    Ok(())
+  }
+
+  /// we don't really have a connection
+  /// always returns true
+  fn connected(&self) -> bool {
+    true
+  }
+
+  /// there is nothing to close
+  fn close(&mut self) -> Result<()> {
+    Ok(())
+  }
+
+  fn query_closure_size(&self, path: &Path) -> Result<Size> {
+    let cmd_res = Command::new("nix")
+      .arg("path-info")
+      .arg("--closure-size")
+      .arg(path.join("sw"))
+      .output()
+      .context(anyhow!("Encountered error while executing nix command"))?;
+    let text = str::from_utf8(&cmd_res.stdout)?;
+    if let Some(bytes_text) = text.split_whitespace().last()
+      && let Ok(bytes) = bytes_text.parse::<u64>()
+    {
+      Ok(Size::from_bytes(bytes))
+    } else {
+      Err(anyhow!("Unable to parse closure size from nix output"))
+    }
+  }
+
+  fn query_system_derivations(
+    &self,
+    system: &Path,
+  ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
+    shell_query(&[
+      "--query",
+      "--references",
+      &*system.join("sw").to_string_lossy(),
+    ])
+  }
+
+  fn query_dependents(
+    &self,
+    path: &Path,
+  ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
+    shell_query(&["--query", "--requisites", &*path.to_string_lossy()])
+  }
+
+  /// This is currently not supported by this final fallback
+  ///
+  /// Always returns an error
+  fn query_dependency_graph(
+    &self,
+    path: &Path,
+  ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>> {
+    Err(anyhow!(
+      "The shell backend does not support querying the dependency graph. \
+       (path: {path:?})"
+    ))
   }
 }
 

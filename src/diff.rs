@@ -195,20 +195,14 @@ pub fn write_package_diff(
   connection.connect()?;
 
   // Query dependencies for old path
-  let paths_old = connection
-    .query_dependents(path_old)
-    .with_context(|| {
-      format!("failed to query dependencies of '{}'", path_old.display())
-    })?
-    .map(|(_, path)| path);
+  let paths_old = connection.query_dependents(path_old).with_context(|| {
+    format!("failed to query dependencies of '{}'", path_old.display())
+  })?;
 
   // Query dependencies for new path
-  let paths_new = connection
-    .query_dependents(path_new)
-    .with_context(|| {
-      format!("failed to query dependencies of '{}'", path_new.display())
-    })?
-    .map(|(_, path)| path);
+  let paths_new = connection.query_dependents(path_new).with_context(|| {
+    format!("failed to query dependencies of '{}'", path_new.display())
+  })?;
 
   // Query system derivations for old path
   let system_derivations_old = connection
@@ -218,8 +212,7 @@ pub fn write_package_diff(
         "failed to query system derivations of '{}'",
         path_old.display()
       )
-    })?
-    .map(|(_, path)| path);
+    })?;
 
   // Query system derivations for new path
   let system_derivations_new = connection
@@ -229,8 +222,7 @@ pub fn write_package_diff(
         "failed to query system derivations of '{}'",
         path_new.display()
       )
-    })?
-    .map(|(_, path)| path);
+    })?;
 
   writeln!(writer)?;
 

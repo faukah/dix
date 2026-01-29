@@ -55,11 +55,11 @@ pub trait StoreBackend<'a> {
   fn query_system_derivations(
     &self,
     system: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>>;
+  ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>>;
   fn query_dependents(
     &self,
     path: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>>;
+  ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>>;
   #[expect(dead_code)]
   fn query_dependency_graph(
     &self,
@@ -356,7 +356,7 @@ impl<'a> StoreBackend<'a> for DBConnection<'_> {
   fn query_system_derivations(
     &self,
     system: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+  ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
     const QUERY: &str = "
       WITH
         systemderiv AS (
@@ -373,15 +373,12 @@ impl<'a> StoreBackend<'a> for DBConnection<'_> {
             SELECT reference as id FROM Refs
             JOIN systempath ON referrer = id
         )
-      SELECT pkgs.id, path FROM pkgs
+      SELECT path FROM pkgs
       JOIN ValidPaths vp ON vp.id = pkgs.id;
     ";
 
     self.execute_row_query_with_path(QUERY, system, |row| {
-      Ok((
-        DerivationId(row.get(0)?),
-        StorePath(row.get::<_, String>(1)?.into()),
-      ))
+      Ok(StorePath(row.get::<_, String>(0)?.into()))
     })
   }
 
@@ -389,7 +386,7 @@ impl<'a> StoreBackend<'a> for DBConnection<'_> {
   fn query_dependents(
     &self,
     path: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+  ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
     const QUERY: &str = "
       WITH RECURSIVE
         graph(p) AS (
@@ -400,15 +397,12 @@ impl<'a> StoreBackend<'a> for DBConnection<'_> {
           SELECT reference FROM Refs
           JOIN graph ON referrer = p
         )
-      SELECT id, path from graph
+      SELECT path from graph
       JOIN ValidPaths ON id = p;
     ";
 
     self.execute_row_query_with_path(QUERY, path, |row| {
-      Ok((
-        DerivationId(row.get(0)?),
-        StorePath(row.get::<_, String>(1)?.into()),
-      ))
+      Ok(StorePath(row.get::<_, String>(0)?.into()))
     })
   }
 
@@ -574,7 +568,7 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
   fn query_system_derivations(
     &self,
     system: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+  ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
     self.fallback_query(
       |backend, system| (**backend).query_system_derivations(system),
       system,
@@ -584,7 +578,7 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
   fn query_dependents(
     &self,
     path: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+  ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
     self
       .fallback_query(|backend, path| (**backend).query_dependents(path), path)
   }
@@ -663,14 +657,14 @@ mod test {
     fn query_system_derivations(
       &self,
       _system: &Path,
-    ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+    ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
       unimplemented!()
     }
 
     fn query_dependents(
       &self,
       _path: &Path,
-    ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
+    ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
       unimplemented!()
     }
 

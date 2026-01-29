@@ -49,7 +49,9 @@ pub const DATABASE_PATH_IMMUTABLE: &str =
 /// to e.g. shell commands should something go wrong.
 pub(crate) trait StoreFrontend<'a> {
   fn connect(&mut self) -> Result<()>;
+  #[allow(dead_code)]
   fn connected(&self) -> bool;
+  #[allow(dead_code)]
   fn close(&mut self) -> Result<()>;
   fn query_closure_size(&self, path: &Path) -> Result<Size>;
   fn query_system_derivations(
@@ -208,15 +210,6 @@ impl<'a> DBConnection<'a> {
     self
       .conn
       .as_ref()
-      .ok_or_else(|| anyhow!("Attempted to use database before connecting."))
-  }
-  /// returns a mutable reference to the inner connection
-  ///
-  /// raises an error if the connection has not been established
-  fn get_inner_mut(&mut self) -> Result<&mut rusqlite::Connection> {
-    self
-      .conn
-      .as_mut()
       .ok_or_else(|| anyhow!("Attempted to use database before connecting."))
   }
   /// Executes a query that returns multiple rows and returns
@@ -458,14 +451,21 @@ impl<'a, T> StoreFrontendPrintable<'a> for T where T: StoreFrontend<'a> + Displa
 ///
 /// currently, the first frontend that works when connecting is used
 pub struct CombinedStoreFrontend<'a> {
+  /// the underlying store frontend implementations
   frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>,
+  /// tracks which stores are connected
+  connected: Vec<bool>,
 }
 
 impl<'a> CombinedStoreFrontend<'a> {
   pub fn new(frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>) -> Self {
-    Self { frontends }
+    Self {
+      connected: vec![false; frontends.len()],
+      frontends,
+    }
   }
-  // tries to execute a query until it succeeds all frontends have been tried
+  // tries to execute a query until it succeeds or all connected frontends have
+  // been tried
   fn fallback_query<'b, F, Ret>(&'b self, query: F, path: &Path) -> Result<Ret>
   where
     F: Fn(&'b Box<dyn StoreFrontendPrintable<'a>>, &Path) -> Result<Ret>,
@@ -473,6 +473,12 @@ impl<'a> CombinedStoreFrontend<'a> {
     let mut combined_err: Option<anyhow::Error> = None;
     // attempt to cycle through frontends until a successful query is made
     for (i, frontend) in self.frontends.iter().enumerate() {
+      if !self.connected[i] {
+        warn!(
+          "Skipping frontend {i} ({frontend}) in query {path:?}: not connected"
+        );
+        continue;
+      }
       let res = query(frontend, path);
       match res {
         Ok(_) => return res,
@@ -496,12 +502,10 @@ impl<'a> CombinedStoreFrontend<'a> {
 
 impl<'a> Default for CombinedStoreFrontend<'a> {
   fn default() -> Self {
-    Self {
-      frontends: vec![
-        Box::new(DBConnection::new(DATABASE_PATH)),
-        Box::new(DBConnection::new(DATABASE_PATH_IMMUTABLE)),
-      ],
-    }
+    CombinedStoreFrontend::new(vec![
+      Box::new(DBConnection::new(DATABASE_PATH)),
+      Box::new(DBConnection::new(DATABASE_PATH_IMMUTABLE)),
+    ])
   }
 }
 
@@ -509,7 +513,6 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
   /// connects to all frontends. Returns an error if all frontends fail
   fn connect(&mut self) -> Result<()> {
     let mut combined_err: Option<anyhow::Error> = None;
-    let mut any_succeeded = false;
     // connect, collecting the errors as we go
     for (i, frontend) in self.frontends.iter_mut().enumerate() {
       if let Err(err) = frontend.connect() {
@@ -522,9 +525,10 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
           None => Some(err),
         }
       } else {
-        any_succeeded = true;
+        self.connected[i] = true;
       }
     }
+    let any_succeeded = self.connected.iter().any(|x| *x);
     // warn about encountered errors, even though there are fallbacks
     if let Some(err) = &combined_err
       && any_succeeded
@@ -547,13 +551,14 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
     self.frontends.iter().any(|frontend| frontend.connected())
   }
 
-  /// closes all connected frontends
+  /// closes all connected frontends until an error occurs
   ///
   /// TODO: warn about errors
   fn close(&mut self) -> Result<()> {
-    for frontend in &mut self.frontends {
+    for (i, frontend) in self.frontends.iter_mut().enumerate() {
       if frontend.connected() {
         frontend.close()?;
+        self.connected[i] = false;
       }
     }
     Ok(())

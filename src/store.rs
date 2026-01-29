@@ -543,16 +543,29 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
     self.frontends.iter().any(|frontend| frontend.connected())
   }
 
-  /// closes all connected frontends until an error occurs
+  /// Closes all connected frontends.
   ///
-  /// TODO: warn about errors
+  /// if some fail to close, the combined error is returned
   fn close(&mut self) -> Result<()> {
-    for frontend in self.frontends.iter_mut() {
+    let mut combined_err: Option<anyhow::Error> = None;
+    for (i, frontend) in self.frontends.iter_mut().enumerate() {
       if frontend.connected() {
-        frontend.close()?;
+        if let Err(err) = frontend.close() {
+          warn!(
+            "Unable to close store frontend {i}: {frontend}. (error: {err})"
+          );
+          combined_err = match combined_err {
+            Some(combined) => Some(combined.context(err)),
+            None => Some(err),
+          };
+        }
       }
     }
-    Ok(())
+    if let Some(err) = combined_err {
+      Err(err.context("One or more frontends failed to close."))
+    } else {
+      Ok(())
+    }
   }
 
   fn query_closure_size(&self, path: &Path) -> Result<Size> {

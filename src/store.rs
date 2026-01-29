@@ -310,15 +310,14 @@ impl<'a> StoreFrontend<'a> for DBConnection<'_> {
 
   /// close the inner connection to the database
   fn close(&mut self) -> Result<()> {
-    // TODO: we might want to consider dropping self (and follow how the inner
-    // conn works)
     let conn = self.conn.take().ok_or_else(|| {
       anyhow!(
         "Tried to close connection to {} that does not exist",
         self.path
       )
     })?;
-    conn.close().map_err(|(_conn, err)| {
+    conn.close().map_err(|(conn_old, err)| {
+      self.conn = Some(conn_old);
       anyhow::Error::from(err).context("failed to close Nix database")
     })
   }

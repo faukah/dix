@@ -45,9 +45,9 @@ pub const DATABASE_PATH_IMMUTABLE: &str =
 
 /// Defines an interface for interacting with a Nix database.
 ///
-/// This allows us to construct a frontend that can fall back
+/// This allows us to construct a backend that can fall back
 /// to e.g. shell commands should something go wrong.
-pub trait StoreFrontend<'a> {
+pub trait StoreBackend<'a> {
   fn connect(&mut self) -> Result<()>;
   fn connected(&self) -> bool;
   fn close(&mut self) -> Result<()>;
@@ -249,7 +249,7 @@ impl Drop for DBConnection<'_> {
   }
 }
 
-impl<'a> StoreFrontend<'a> for DBConnection<'_> {
+impl<'a> StoreBackend<'a> for DBConnection<'_> {
   fn connected(&self) -> bool {
     self.conn.is_some()
   }
@@ -441,45 +441,44 @@ impl<'a> StoreFrontend<'a> for DBConnection<'_> {
 }
 
 /// wrapper trait for debug information
-pub trait StoreFrontendPrintable<'a>: StoreFrontend<'a> + Display {}
+pub trait StoreBackendPrintable<'a>: StoreBackend<'a> + Display {}
 
-impl<'a, T> StoreFrontendPrintable<'a> for T where T: StoreFrontend<'a> + Display
-{}
+impl<'a, T> StoreBackendPrintable<'a> for T where T: StoreBackend<'a> + Display {}
 
-/// combines multiple store frontends by falling back to the next one if the
+/// combines multiple store backends by falling back to the next one if the
 /// current one fails.
 ///
-/// Currently, the first frontend that works when connecting is used.
-pub struct CombinedStoreFrontend<'a> {
-  /// The underlying store frontend implementations.
-  frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>,
+/// Currently, the first backend that works when connecting is used.
+pub struct CombinedStoreBackend<'a> {
+  /// The underlying store backend implementations.
+  backends: Vec<Box<dyn StoreBackendPrintable<'a>>>,
 }
 
-impl<'a> CombinedStoreFrontend<'a> {
-  pub fn new(frontends: Vec<Box<dyn StoreFrontendPrintable<'a>>>) -> Self {
-    Self { frontends }
+impl<'a> CombinedStoreBackend<'a> {
+  pub fn new(backends: Vec<Box<dyn StoreBackendPrintable<'a>>>) -> Self {
+    Self { backends }
   }
-  // tries to execute a query until it succeeds or all connected frontends have
+  // tries to execute a query until it succeeds or all connected backends have
   // been tried
   fn fallback_query<'b, F, Ret>(&'b self, query: F, path: &Path) -> Result<Ret>
   where
-    F: Fn(&'b Box<dyn StoreFrontendPrintable<'a>>, &Path) -> Result<Ret>,
+    F: Fn(&'b Box<dyn StoreBackendPrintable<'a>>, &Path) -> Result<Ret>,
   {
     let mut combined_err: Option<anyhow::Error> = None;
-    // attempt to cycle through frontends until a successful query is made
-    for (i, frontend) in self.frontends.iter().enumerate() {
-      if !frontend.connected() {
+    // attempt to cycle through backends until a successful query is made
+    for (i, backend) in self.backends.iter().enumerate() {
+      if !backend.connected() {
         warn!(
-          "Skipping frontend {i} ({frontend}) in query {path:?}: not connected"
+          "Skipping backend {i} ({backend}) in query {path:?}: not connected"
         );
         continue;
       }
-      let res = query(frontend, path);
+      let res = query(backend, path);
       match res {
         Ok(_) => return res,
         Err(err) => {
           warn!(
-            "Failed to query path {path:?} on current frontend {frontend} \
+            "Failed to query path {path:?} on current backend {backend} \
              ({i}): {}",
             &err
           );
@@ -490,29 +489,29 @@ impl<'a> CombinedStoreFrontend<'a> {
         },
       }
     }
-    warn!("All store frontends for path {path:?} failed");
+    warn!("All store backends for path {path:?} failed");
     Err(combined_err.unwrap_or_else(|| anyhow!("No internal stores to query.")))
   }
 }
 
-impl<'a> Default for CombinedStoreFrontend<'a> {
+impl<'a> Default for CombinedStoreBackend<'a> {
   fn default() -> Self {
-    CombinedStoreFrontend::new(vec![
+    CombinedStoreBackend::new(vec![
       Box::new(DBConnection::new(DATABASE_PATH)),
       Box::new(DBConnection::new(DATABASE_PATH_IMMUTABLE)),
     ])
   }
 }
 
-impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
-  /// connects to all frontends. Returns an error if all frontends fail
+impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
+  /// connects to all backends. Returns an error if all backends fail
   fn connect(&mut self) -> Result<()> {
     let mut combined_err: Option<anyhow::Error> = None;
     // connect, collecting the errors as we go
-    for (i, frontend) in self.frontends.iter_mut().enumerate() {
-      if let Err(err) = frontend.connect() {
+    for (i, backend) in self.backends.iter_mut().enumerate() {
+      if let Err(err) = backend.connect() {
         warn!(
-          "Unable to connect to store frontend {i}: {frontend}, trying next. \
+          "Unable to connect to store backend {i}: {backend}, trying next. \
            (error: {err})"
         );
         combined_err = match combined_err {
@@ -521,40 +520,36 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
         }
       }
     }
-    let any_succeeded = self.frontends.iter().any(|f| f.connected());
+    let any_succeeded = self.backends.iter().any(|f| f.connected());
     // warn about encountered errors, even though there are fallbacks
     if let Some(err) = &combined_err
       && any_succeeded
     {
-      warn!("Some frontends failed to connect: {err}")
+      warn!("Some backends failed to connect: {err}")
     }
     if any_succeeded {
       Ok(())
     } else {
       combined_err =
-        combined_err.map(|err| err.context("All frontends failed to connect."));
-      Err(
-        combined_err.unwrap_or_else(|| anyhow!("No frontends to connect to.")),
-      )
+        combined_err.map(|err| err.context("All backends failed to connect."));
+      Err(combined_err.unwrap_or_else(|| anyhow!("No backends to connect to.")))
     }
   }
 
-  /// True if any frontend is connected.
+  /// True if any backend is connected.
   fn connected(&self) -> bool {
-    self.frontends.iter().any(|frontend| frontend.connected())
+    self.backends.iter().any(|backend| backend.connected())
   }
 
-  /// Closes all connected frontends.
+  /// Closes all connected backends.
   ///
   /// If some fail to close, the combined error is returned.
   fn close(&mut self) -> Result<()> {
     let mut combined_err: Option<anyhow::Error> = None;
-    for (i, frontend) in self.frontends.iter_mut().enumerate() {
-      if frontend.connected() {
-        if let Err(err) = frontend.close() {
-          warn!(
-            "Unable to close store frontend {i}: {frontend}. (error: {err})"
-          );
+    for (i, backend) in self.backends.iter_mut().enumerate() {
+      if backend.connected() {
+        if let Err(err) = backend.close() {
+          warn!("Unable to close store backend {i}: {backend}. (error: {err})");
           combined_err = match combined_err {
             Some(combined) => Some(combined.context(err)),
             None => Some(err),
@@ -563,7 +558,7 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
       }
     }
     if let Some(err) = combined_err {
-      Err(err.context("One or more frontends failed to close."))
+      Err(err.context("One or more backends failed to close."))
     } else {
       Ok(())
     }
@@ -571,7 +566,7 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
 
   fn query_closure_size(&self, path: &Path) -> Result<Size> {
     self.fallback_query(
-      |frontend, path| (**frontend).query_closure_size(path),
+      |backend, path| (**backend).query_closure_size(path),
       path,
     )
   }
@@ -581,7 +576,7 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
     system: &Path,
   ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
     self.fallback_query(
-      |frontend, system| (**frontend).query_system_derivations(system),
+      |backend, system| (**backend).query_system_derivations(system),
       system,
     )
   }
@@ -590,10 +585,8 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
     &self,
     path: &Path,
   ) -> Result<Box<dyn Iterator<Item = (DerivationId, StorePath)> + '_>> {
-    self.fallback_query(
-      |frontend, path| (**frontend).query_dependents(path),
-      path,
-    )
+    self
+      .fallback_query(|backend, path| (**backend).query_dependents(path), path)
   }
 
   fn query_dependency_graph(
@@ -601,7 +594,7 @@ impl<'a> StoreFrontend<'a> for CombinedStoreFrontend<'a> {
     path: &Path,
   ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>> {
     self.fallback_query(
-      |frontend, path| (**frontend).query_dependency_graph(path),
+      |backend, path| (**backend).query_dependency_graph(path),
       path,
     )
   }
@@ -613,7 +606,7 @@ mod test {
 
   use super::*;
 
-  struct MockStoreFrontend {
+  struct MockStoreBackend {
     name:         String,
     connected:    bool,
     fail_connect: bool,
@@ -621,7 +614,7 @@ mod test {
     query_called: RefCell<bool>,
   }
 
-  impl MockStoreFrontend {
+  impl MockStoreBackend {
     fn new(name: &str, fail_connect: bool, fail_query: bool) -> Self {
       Self {
         name: name.to_string(),
@@ -633,13 +626,13 @@ mod test {
     }
   }
 
-  impl Display for MockStoreFrontend {
+  impl Display for MockStoreBackend {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-      write!(f, "MockStoreFrontend({})", self.name)
+      write!(f, "MockStoreBackend({})", self.name)
     }
   }
 
-  impl<'a> StoreFrontend<'a> for MockStoreFrontend {
+  impl<'a> StoreBackend<'a> for MockStoreBackend {
     fn connect(&mut self) -> Result<()> {
       if self.fail_connect {
         Err(anyhow!("Connection failed"))
@@ -692,9 +685,9 @@ mod test {
 
   #[test]
   fn test_connect_fallback() {
-    let f1 = Box::new(MockStoreFrontend::new("f1", true, false));
-    let f2 = Box::new(MockStoreFrontend::new("f2", false, false));
-    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+    let f1 = Box::new(MockStoreBackend::new("f1", true, false));
+    let f2 = Box::new(MockStoreBackend::new("f2", false, false));
+    let mut combined = CombinedStoreBackend::new(vec![f1, f2]);
 
     assert!(combined.connect().is_ok());
     assert!(combined.connected());
@@ -702,9 +695,9 @@ mod test {
 
   #[test]
   fn test_connect_all_fail() {
-    let f1 = Box::new(MockStoreFrontend::new("f1", true, false));
-    let f2 = Box::new(MockStoreFrontend::new("f2", true, false));
-    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+    let f1 = Box::new(MockStoreBackend::new("f1", true, false));
+    let f2 = Box::new(MockStoreBackend::new("f2", true, false));
+    let mut combined = CombinedStoreBackend::new(vec![f1, f2]);
 
     assert!(combined.connect().is_err());
     assert!(!combined.connected());
@@ -712,9 +705,9 @@ mod test {
 
   #[test]
   fn test_query_fallback() {
-    let f1 = Box::new(MockStoreFrontend::new("f1", false, true));
-    let f2 = Box::new(MockStoreFrontend::new("f2", false, false));
-    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+    let f1 = Box::new(MockStoreBackend::new("f1", false, true));
+    let f2 = Box::new(MockStoreBackend::new("f2", false, false));
+    let mut combined = CombinedStoreBackend::new(vec![f1, f2]);
 
     combined.connect().unwrap();
 
@@ -725,9 +718,9 @@ mod test {
 
   #[test]
   fn test_query_skip_unconnected() {
-    let f1 = Box::new(MockStoreFrontend::new("f1", true, false));
-    let f2 = Box::new(MockStoreFrontend::new("f2", false, false));
-    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+    let f1 = Box::new(MockStoreBackend::new("f1", true, false));
+    let f2 = Box::new(MockStoreBackend::new("f2", false, false));
+    let mut combined = CombinedStoreBackend::new(vec![f1, f2]);
 
     combined.connect().unwrap(); // f1 fails, f2 succeeds
 
@@ -735,10 +728,10 @@ mod test {
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), Size::from_bytes(100));
 
-    let f1 = Box::new(MockStoreFrontend::new("f1", true, false));
-    let f2 = Box::new(MockStoreFrontend::new("f2", true, false));
-    let f3 = Box::new(MockStoreFrontend::new("f3", false, false));
-    let mut combined = CombinedStoreFrontend::new(vec![f1, f2, f3]);
+    let f1 = Box::new(MockStoreBackend::new("f1", true, false));
+    let f2 = Box::new(MockStoreBackend::new("f2", true, false));
+    let f3 = Box::new(MockStoreBackend::new("f3", false, false));
+    let mut combined = CombinedStoreBackend::new(vec![f1, f2, f3]);
     combined.connect().unwrap();
 
     let res = combined.query_closure_size(Path::new("/dummy"));
@@ -749,9 +742,9 @@ mod test {
 
   #[test]
   fn test_query_all_fail() {
-    let f1 = Box::new(MockStoreFrontend::new("f1", false, true));
-    let f2 = Box::new(MockStoreFrontend::new("f2", false, true));
-    let mut combined = CombinedStoreFrontend::new(vec![f1, f2]);
+    let f1 = Box::new(MockStoreBackend::new("f1", false, true));
+    let f2 = Box::new(MockStoreBackend::new("f2", false, true));
+    let mut combined = CombinedStoreBackend::new(vec![f1, f2]);
 
     combined.connect().unwrap();
 

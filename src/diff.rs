@@ -45,7 +45,7 @@ use crate::{
   Version,
   store::{
     self,
-    StoreFrontend,
+    StoreBackend,
   },
   version::{
     VersionComponent,
@@ -191,7 +191,7 @@ pub fn write_package_diff(
   path_old: &Path,
   path_new: &Path,
 ) -> Result<usize> {
-  let mut connection = store::CombinedStoreFrontend::default();
+  let mut connection = create_backend(force_correctness);
   connection.connect()?;
 
   // Query dependencies for old path
@@ -951,7 +951,7 @@ pub fn spawn_size_diff(
   log::debug!("calculating closure sizes in background");
 
   thread::spawn(move || {
-    let mut connection = store::CombinedStoreFrontend::default();
+    let mut connection = create_backend(force_correctness);
     connection.connect()?;
 
     Ok::<_, Error>((

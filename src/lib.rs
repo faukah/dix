@@ -1,5 +1,8 @@
 use std::{
-  path::PathBuf,
+  path::{
+    Path,
+    PathBuf,
+  },
   sync,
 };
 
@@ -102,4 +105,23 @@ impl StorePath {
 
     Ok((name, version))
   }
+}
+
+fn path_to_canonical_string(path: &Path) -> Result<String> {
+  let path = path.canonicalize().with_context(|| {
+    format!(
+      "failed to canonicalize path '{path}'",
+      path = path.display(),
+    )
+  })?;
+
+  let path = path.into_os_string().into_string().map_err(|path| {
+    anyhow!(
+      "failed to convert path '{path}' to valid unicode",
+      path = Path::new(&*path).display(), /* TODO: use .display() directly
+                                           * after Rust 1.87.0 in flake. */
+    )
+  })?;
+
+  Ok(path)
 }

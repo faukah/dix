@@ -11,20 +11,51 @@ package).
 
 ```bash
 $ dix --help
-
 Diff Nix
 
 Usage: dix [OPTIONS] <OLD_PATH> <NEW_PATH>
 
 Arguments:
-  <OLD_PATH>  
-  <NEW_PATH>  
+  <OLD_PATH>
+          
+
+  <NEW_PATH>
+          
 
 Options:
-  -v, --verbose...  Increase logging verbosity
-  -q, --quiet...    Decrease logging verbosity
-  -h, --help        Print help
-  -V, --version     Print version
+  -v, --verbose...
+          Increase logging verbosity
+
+  -q, --quiet...
+          Decrease logging verbosity
+
+      --color <WHEN>
+          Controls when to use color
+          
+          [default: auto]
+          [possible values: auto, always, never]
+
+      --force-correctness
+          Fall back to a backend that is focused solely on absolutely guaranteeing correct results at the cost of memory usage and query speed.
+          
+          This is relevant if the output of dix is to be used for more critical applications and not just as human-readable overview.
+          
+          In the vast, vast majority of cases, the default backend should be sufficient.
+
+      --output <OUTPUT>
+          Select the output format to use
+
+          Possible values:
+          - human: Output in the default dix format highlighting version changes
+          - json:  Display the output as JSON for machine parsing (requires `json` feature)
+          
+          [default: human]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 
 $ dix /nix/var/profiles/system-69-link /run/current-system
 ```

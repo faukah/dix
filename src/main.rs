@@ -13,6 +13,7 @@ use std::{
 };
 
 use clap::Parser as _;
+#[cfg(feature = "json")] use dix::json;
 use eyre::eyre;
 use yansi::Paint as _;
 
@@ -52,6 +53,13 @@ struct Cli {
   /// sufficient.
   #[arg(long, default_value_t = false, global = true)]
   force_correctness: bool,
+
+  /// Does not display the normal, human readable diff, but rather
+  /// serialized to json
+  ///
+  /// Requires the "json" feature.
+  #[arg(long, default_value_t = false, global = true)]
+  json_output: bool,
 }
 
 fn main() -> eyre::Result<()> {
@@ -61,6 +69,7 @@ fn main() -> eyre::Result<()> {
     verbose,
     color,
     force_correctness,
+    json_output,
   } = Cli::parse();
 
   tracing::debug!(
@@ -123,13 +132,39 @@ fn main() -> eyre::Result<()> {
     .with_target(false)
     .without_time()
     .init();
+
+  #[cfg(feature = "json")]
+  let json_feature_enabled = true;
+  #[cfg(not(feature = "json"))]
+  let json_feature_enabled = false;
+
+  if !json_feature_enabled && json_output {
+    return Err(eyre!(
+      "The 'json' feature is required to use '--json-output'."
+    ));
+  }
+
   if force_correctness {
     tracing::warn!(
       "Falling back to slower but more robust backends (force_correctness is \
        set)."
     );
   }
+  if json_output {
+    #[cfg(feature = "json")]
+    json::display_diff(&old_path, &new_path, force_correctness)?;
+  } else {
+    display_diff(&old_path, &new_path, force_correctness)?;
+  }
 
+  Ok(())
+}
+
+fn display_diff(
+  old_path: &PathBuf,
+  new_path: &PathBuf,
+  force_correctness: bool,
+) -> eyre::Result<()> {
   let mut out = WriteFmt(io::stdout());
 
   tracing::info!("starting diff computation");

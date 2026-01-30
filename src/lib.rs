@@ -15,6 +15,8 @@ use anyhow::{
 };
 use derive_more::Deref;
 
+#[cfg(feature = "json")] pub mod json;
+
 pub mod diff;
 #[expect(deprecated)]
 pub use diff::{

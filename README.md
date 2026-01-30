@@ -11,15 +11,16 @@ package).
 
 ```bash
 $ dix --help
-
 Diff Nix
 
 Usage: dix [OPTIONS] <OLD_PATH> <NEW_PATH>
 
 Arguments:
   <OLD_PATH>
+          
 
   <NEW_PATH>
+          
 
 Options:
   -v, --verbose...
@@ -30,16 +31,21 @@ Options:
 
       --color <WHEN>
           Controls when to use color
-
+          
           [default: auto]
           [possible values: auto, always, never]
 
       --force-correctness
           Fall back to a backend that is focused solely on absolutely guaranteeing correct results at the cost of memory usage and query speed.
-
+          
           This is relevant if the output of dix is to be used for more critical applications and not just as human-readable overview.
-
+          
           In the vast, vast majority of cases, the default backend should be sufficient.
+
+      --json-output
+          Outputs the diff in JSON format instead of the normal, human-readable diff.
+          
+          Requires the "json" feature.
 
   -h, --help
           Print help (see a summary with '-h')
@@ -47,14 +53,20 @@ Options:
   -V, --version
           Print version
 
+
 $ dix /nix/var/profiles/system-69-link /run/current-system
 ```
 
-# Usage in CI 
-If you're planning on using dix in CI, you might want to set the `--force-correctness` flag to ensure that the results are definitely accurate. \
-Dix will fall back to a connection using `?immutable=1` to Nix's SQLite database if it fails connecting normally; This can however result in inaccurate output if the database is being written to at the same time. \
-Passing `--force-correctness` will make dix fall back to Nix commands if connection to the database fails, which ensures correct output, potentially at the cost of speed.
+# Usage in CI
 
+If you're planning on using dix in CI, you might want to set the
+`--force-correctness` flag to ensure that the results are definitely accurate.\
+Dix will fall back to a connection using `?immutable=1` to Nix's SQLite database
+if it fails connecting normally; This can however result in inaccurate output if
+the database is being written to at the same time.\
+Passing `--force-correctness` will make dix fall back to Nix commands if
+connection to the database fails, which ensures correct output, potentially at
+the cost of speed.
 
 ## Contributing
 

@@ -85,6 +85,14 @@ impl StoreBackend<'_> for CommandBackend {
       .output()
       .wrap_err("Encountered error while executing nix command")?;
 
+    if !cmd_res.status.success() {
+      let stderr = String::from_utf8_lossy(&cmd_res.stderr);
+      bail!(
+        "nix command exited with non-zero status {status}: {err}",
+        status = cmd_res.status,
+        err = stderr.trim()
+      );
+    }
     let text = str::from_utf8(&cmd_res.stdout)?;
 
     if let Some(bytes_text) = text.split_whitespace().last()

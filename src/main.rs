@@ -54,8 +54,7 @@ struct Cli {
   #[arg(long, default_value_t = false, global = true)]
   force_correctness: bool,
 
-  /// Does not display the normal, human readable diff, but rather
-  /// serialized to json
+  /// Outputs the diff in JSON format instead of the normal, human-readable diff.
   ///
   /// Requires the "json" feature.
   #[arg(long, default_value_t = false, global = true)]

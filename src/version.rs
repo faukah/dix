@@ -7,12 +7,14 @@ use derive_more::{
   Deref,
   Display,
 };
+#[cfg(feature = "json")] use serde::Serialize;
 
 /// Separators used to split version strings.
 const SEPARATORS: &[char] = &['.', '-', '_', '+', '*', '=', '×', ' '];
 
 /// A version string with semantic comparison support.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub struct Version {
   pub name:   String,
   pub amount: usize,

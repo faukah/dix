@@ -16,6 +16,8 @@ use eyre::{
   eyre,
 };
 
+#[cfg(feature = "json")] pub mod json;
+
 pub mod diff;
 pub use diff::{
   generate_diffs_from_paths,

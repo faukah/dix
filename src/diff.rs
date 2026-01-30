@@ -21,9 +21,9 @@ use std::{
 
 use ::std::hash::BuildHasher;
 use eyre::{
-  Context as _,
   Error,
   Result,
+  WrapErr as _,
 };
 use itertools::{
   EitherOrBoth,
@@ -33,6 +33,7 @@ use pathfinding::{
   kuhn_munkres,
   matrix::Matrix,
 };
+#[cfg(feature = "json")] use serde::Serialize;
 use size::Size;
 use unicode_width::UnicodeWidthStr as _;
 use yansi::{
@@ -53,7 +54,7 @@ use crate::{
   },
 };
 
-fn create_backend<'a>(
+pub(crate) fn create_backend<'a>(
   force_correctness: bool,
 ) -> store::CombinedStoreBackend<'a> {
   if force_correctness {
@@ -64,6 +65,7 @@ fn create_backend<'a>(
 }
 
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub struct Diff<T = Vec<Version>> {
   pub name:                String,
   pub old:                 T,
@@ -90,6 +92,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub enum Change {
   UpgradeDowngrade,
   Upgraded,
@@ -97,6 +100,7 @@ pub enum Change {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub enum DiffStatus {
   Changed(Change),
   Added,
@@ -146,6 +150,7 @@ impl cmp::Ord for DiffStatus {
 /// Documents if the derivation is a system package and if
 /// it was added / removed as such.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub enum DerivationSelectionStatus {
   /// The derivation is a system package, status unchanged.
   Selected,
@@ -417,7 +422,7 @@ pub fn write_packages_diff(
   system_paths_old: impl Iterator<Item = StorePath>,
   system_paths_new: impl Iterator<Item = StorePath>,
 ) -> Result<usize, fmt::Error> {
-  let paths_map = collect_paths(paths_old, paths_new);
+  let paths_map = collect_path_versions(paths_old, paths_new);
 
   let sys_old_set: HashSet<String> = system_paths_old
     .filter_map(|p| p.parse_name_and_version().ok().map(|(n, _)| n.into()))
@@ -436,8 +441,33 @@ pub fn write_packages_diff(
   render_diffs(writer, &diffs)
 }
 
-/// Collects all path data: versions and system names.
-fn collect_paths(
+/// Collects package names from system paths
+///
+/// Takes an iterator of store paths and extracts the package names,
+/// filtering out any that cannot be parsed. Logs warnings for parse failures.
+pub(crate) fn collect_system_names(
+  paths: impl Iterator<Item = StorePath>,
+  context: &str,
+) -> HashSet<String> {
+  paths
+    .filter_map(|path| {
+      match path.parse_name_and_version() {
+        Ok((name, _)) => Some(name.into()),
+        Err(error) => {
+          tracing::warn!("error parsing {context} system path name: {error}");
+          None
+        },
+      }
+    })
+    .collect()
+}
+
+/// Collects and organizes versions from old and new paths
+///
+/// Creates a mapping from package names to their versions in old and new paths.
+/// For each package, stores a tuple of (`old_versions`, `new_versions`).
+/// Handles parsing errors by logging warnings and skipping problematic entries.
+pub(crate) fn collect_path_versions(
   old: impl Iterator<Item = StorePath>,
   new: impl Iterator<Item = StorePath>,
 ) -> HashMap<String, (Vec<Version>, Vec<Version>)> {

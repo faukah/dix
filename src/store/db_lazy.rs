@@ -20,7 +20,6 @@ use ouroboros::self_referencing;
 use rusqlite::{
   CachedStatement,
   MappedRows,
-  OpenFlags,
   Row,
 };
 use size::Size;
@@ -29,7 +28,13 @@ use crate::{
   DerivationId,
   StorePath,
   path_to_canonical_string,
-  store::StoreBackend,
+  store::{
+    StoreBackend,
+    db_common::{
+      self,
+    },
+    queries,
+  },
 };
 type FilterOkFunc<T> = fn(Result<T, rusqlite::Error>) -> Option<T>;
 
@@ -128,23 +133,35 @@ where
   }
 }
 
-/// A Nix database connection.
+/// A lazy Nix database connection.
+///
+/// All returned iterators are lazy (except for the first row) and provide rows
+/// as soon as they are returned by the underlying sqlite connection.
+///
+/// The first row is queried eagerly to catch any obvious errors in the
+/// query.
+///
+/// # Important
+/// If any errors occur in rows after the first one, these errors **will not**
+/// be visible and the errors will be lost.
+///
+/// You may consider using an [crate::store::EagerDBConnection] instead.
 #[derive(Debug)]
-pub struct DBConnection<'a> {
+pub struct LazyDBConnection<'a> {
   path: &'a str,
   conn: Option<rusqlite::Connection>,
 }
 
-impl Display for DBConnection<'_> {
+impl Display for LazyDBConnection<'_> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "DBConnection({})", self.path)
   }
 }
 
-impl<'a> DBConnection<'a> {
+impl<'a> LazyDBConnection<'a> {
   /// Create a new connection.
-  pub fn new(path: &'a str) -> DBConnection<'a> {
-    DBConnection { path, conn: None }
+  pub fn new(path: &'a str) -> LazyDBConnection<'a> {
+    LazyDBConnection { path, conn: None }
   }
   /// returns a reference to the inner connection
   ///
@@ -179,7 +196,7 @@ impl<'a> DBConnection<'a> {
 /// when being dropped. This is done anyways by the internal
 /// connection of rusqlite, but here the error gets logged should
 /// something go wrong.
-impl Drop for DBConnection<'_> {
+impl Drop for LazyDBConnection<'_> {
   /// close the connection if it is still open
   fn drop(&mut self) {
     // try to close the connection
@@ -194,7 +211,7 @@ impl Drop for DBConnection<'_> {
   }
 }
 
-impl<'a> StoreBackend<'a> for DBConnection<'_> {
+impl<'a> StoreBackend<'a> for LazyDBConnection<'_> {
   fn connected(&self) -> bool {
     self.conn.is_some()
   }
@@ -202,97 +219,18 @@ impl<'a> StoreBackend<'a> for DBConnection<'_> {
   ///
   /// and sets some basic settings
   fn connect(&mut self) -> Result<()> {
-    let inner = rusqlite::Connection::open_with_flags(
-      self.path,
-      OpenFlags::SQLITE_OPEN_READ_ONLY // We only run queries, safeguard against corrupting the DB.
-      | OpenFlags::SQLITE_OPEN_NO_MUTEX // Part of the default flags, rusqlite takes care of locking anyways.
-      | OpenFlags::SQLITE_OPEN_URI,
-    )
-    .with_context(|| {
-      format!("failed to connect to Nix database at {}", self.path)
-    })?;
-
-    // Perform a batched query to set some settings using PRAGMA
-    // the main performance bottleneck when dix was run before
-    // was that the database file has to be brought from disk into
-    // memory.
-    //
-    // We read a large part of the DB anyways in each query,
-    // so it makes sense to set aside a large region of memory-mapped
-    // I/O prevent incurring page faults which can be done using
-    // `mmap_size`.
-    //
-    // This made a performance difference of about 500ms (but only
-    // when it was first run for a long time!).
-    //
-    // The file pages of the store can be evicted from main memory
-    // using:
-    //
-    // ```bash
-    // dd of=/nix/var/nix/db/db.sqlite oflag=nocache conv=notrunc,fdatasync count=0
-    // ```
-    //
-    // If you want to test this. Source: <https://unix.stackexchange.com/questions/36907/drop-a-specific-file-from-the-linux-filesystem-cache>.
-    //
-    // Documentation about the settings can be found here: <https://www.sqlite.org/pragma.html>
-    //
-    // [0]: 256MB, enough to fit the whole DB (at least on my system - Dragyx).
-    // [1]: Always store temporary tables in memory.
-    inner
-      .execute_batch(
-        "
-        PRAGMA mmap_size=268435456; -- See [0].
-        PRAGMA temp_store=2; -- See [1].
-        PRAGMA query_only;
-      ",
-      )
-      .with_context(|| {
-        format!("failed to cache Nix database at {}", self.path)
-      })?;
-
-    self.conn = Some(inner);
+    self.conn = Some(db_common::default_sqlite_connection(self.path)?);
     Ok(())
   }
 
   /// close the inner connection to the database
   fn close(&mut self) -> Result<()> {
-    let conn = self.conn.take().ok_or_else(|| {
-      anyhow!(
-        "Tried to close connection to {} that does not exist",
-        self.path
-      )
-    })?;
-    conn.close().map_err(|(conn_old, err)| {
-      self.conn = Some(conn_old);
-      anyhow::Error::from(err).context("failed to close Nix database")
-    })
+    db_common::default_close_inner_connection(self.path, &mut self.conn)
   }
-
   /// Gets the total closure size of the given store path by summing up the nar
   /// size of all dependent derivations.
   fn query_closure_size(&self, path: &Path) -> Result<Size> {
-    const QUERY: &str = "
-      WITH RECURSIVE
-        graph(p) AS (
-          SELECT id
-          FROM ValidPaths
-          WHERE path = ?
-        UNION
-          SELECT reference FROM Refs
-          JOIN graph ON referrer = p
-        )
-      SELECT SUM(narSize) as sum from graph
-      JOIN ValidPaths ON p = id;
-    ";
-
-    let path = path_to_canonical_string(path)?;
-
-    let closure_size = self
-      .get_inner()?
-      .prepare_cached(QUERY)?
-      .query_row([path], |row| Ok(Size::from_bytes(row.get::<_, i64>(0)?)))?;
-
-    Ok(closure_size)
+    db_common::query_closure_size(self.get_inner()?, path)
   }
 
   /// Gets the derivations that are directly included in the system derivation.
@@ -302,29 +240,11 @@ impl<'a> StoreBackend<'a> for DBConnection<'_> {
     &self,
     system: &Path,
   ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
-    const QUERY: &str = "
-      WITH
-        systemderiv AS (
-          SELECT id FROM ValidPaths
-          WHERE path = ?
-        ),
-        systempath AS (
-          SELECT reference as id FROM systemderiv sd
-          JOIN Refs ON sd.id = referrer
-          JOIN ValidPaths vp ON reference = vp.id
-          WHERE (vp.path LIKE '%-system-path')
-        ),
-        pkgs AS (
-            SELECT reference as id FROM Refs
-            JOIN systempath ON referrer = id
-        )
-      SELECT path FROM pkgs
-      JOIN ValidPaths vp ON vp.id = pkgs.id;
-    ";
-
-    self.execute_row_query_with_path(QUERY, system, |row| {
-      Ok(StorePath(row.get::<_, String>(0)?.into()))
-    })
+    self.execute_row_query_with_path(
+      queries::QUERY_SYSTEM_DERIVATIONS,
+      system,
+      |row| Ok(StorePath(row.get::<_, String>(0)?.into())),
+    )
   }
 
   /// Gathers all derivations that the given profile path depends on.
@@ -332,21 +252,7 @@ impl<'a> StoreBackend<'a> for DBConnection<'_> {
     &self,
     path: &Path,
   ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
-    const QUERY: &str = "
-      WITH RECURSIVE
-        graph(p) AS (
-          SELECT id
-          FROM ValidPaths
-          WHERE path = ?
-        UNION
-          SELECT reference FROM Refs
-          JOIN graph ON referrer = p
-        )
-      SELECT path from graph
-      JOIN ValidPaths ON id = p;
-    ";
-
-    self.execute_row_query_with_path(QUERY, path, |row| {
+    self.execute_row_query_with_path(queries::QUERY_DEPENDENTS, path, |row| {
       Ok(StorePath(row.get::<_, String>(0)?.into()))
     })
   }
@@ -359,22 +265,10 @@ impl<'a> StoreBackend<'a> for DBConnection<'_> {
     &self,
     path: &Path,
   ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>> {
-    const QUERY: &str = "
-      WITH RECURSIVE
-        graph(p, c) AS (
-          SELECT id as par, reference as chd
-          FROM ValidPaths
-          JOIN Refs ON referrer = id
-          WHERE path = ?
-        UNION
-          SELECT referrer as par, reference as chd FROM Refs
-          JOIN graph ON referrer = c
-        )
-      SELECT p, c from graph;
-    ";
-
-    self.execute_row_query_with_path(QUERY, path, |row| {
-      Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?)))
-    })
+    self.execute_row_query_with_path(
+      queries::QUERY_DEPENDENCY_GRAPH,
+      path,
+      |row| Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?))),
+    )
   }
 }

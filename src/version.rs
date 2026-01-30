@@ -10,6 +10,7 @@ use derive_more::{
   Display,
   From,
 };
+#[cfg(feature = "json")] use serde::Serialize;
 
 /// A type representing a version string.
 ///
@@ -21,6 +22,7 @@ pub const VERSION_SEPARATORS: &[char] =
   &['.', '-', '_', '+', '*', '=', '×', ' '];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub struct Version {
   pub name:   String,
   pub amount: usize,

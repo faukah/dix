@@ -53,6 +53,16 @@ use crate::{
   },
 };
 
+fn create_backend<'a>(
+  force_correctness: bool,
+) -> store::CombinedStoreBackend<'a> {
+  if force_correctness {
+    store::CombinedStoreBackend::default_eager()
+  } else {
+    store::CombinedStoreBackend::default_lazy()
+  }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct Diff<T = Vec<Version>> {
   pub name:                String,
@@ -190,6 +200,7 @@ pub fn write_package_diff(
   writer: &mut impl fmt::Write,
   path_old: &Path,
   path_new: &Path,
+  force_correctness: bool,
 ) -> Result<usize> {
   let mut connection = create_backend(force_correctness);
   connection.connect()?;
@@ -252,7 +263,8 @@ pub fn write_paths_diffln(
   path_old: &Path,
   path_new: &Path,
 ) -> Result<usize> {
-  write_package_diff(writer, path_old, path_new)
+  // Setting `force_correctness` to false mimics the old behaviour.
+  write_package_diff(writer, path_old, path_new, false)
 }
 
 /// Computes the Levenshtein distance between two slices using dynamic
@@ -939,6 +951,7 @@ fn fmt_version_piece_pair(
 pub fn spawn_size_diff(
   path_old: PathBuf,
   path_new: PathBuf,
+  force_correctness: bool,
 ) -> thread::JoinHandle<Result<(Size, Size)>> {
   log::debug!("calculating closure sizes in background");
 

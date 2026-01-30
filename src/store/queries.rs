@@ -1,17 +1,3 @@
-pub(crate) const QUERY_DEPENDENCY_GRAPH: &str = "
-      WITH RECURSIVE
-        graph(p, c) AS (
-          SELECT id as par, reference as chd
-          FROM ValidPaths
-          JOIN Refs ON referrer = id
-          WHERE path = ?
-        UNION
-          SELECT referrer as par, reference as chd FROM Refs
-          JOIN graph ON referrer = c
-        )
-      SELECT p, c from graph;
-    ";
-
 pub(crate) const QUERY_DEPENDENTS: &str = "
       WITH RECURSIVE
         graph(p) AS (

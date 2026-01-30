@@ -1,12 +1,15 @@
 #![allow(clippy::mem_forget)]
-
+//! Provides an interface for querying data from the nix store.
+//!
+//! - [LazyDBConnection] is a lazy connection the underlying sqlite database.
+mod db_common;
 mod db_eager;
 mod db_lazy;
 mod nix_command;
 mod queries;
 
 pub mod store {
-  pub use crate::store::db_lazy::DBConnection;
+  pub use crate::store::db_lazy::LazyDBConnection;
 }
 
 use std::{
@@ -26,8 +29,9 @@ use crate::{
   DerivationId,
   StorePath,
   store::{
+    db_eager::EagerDBConnection,
     nix_command::CommandBackend,
-    store::DBConnection,
+    store::LazyDBConnection,
   },
 };
 /// The normal database connection
@@ -83,6 +87,35 @@ impl<'a> CombinedStoreBackend<'a> {
   pub fn new(backends: Vec<Box<dyn StoreBackendPrintable<'a>>>) -> Self {
     Self { backends }
   }
+
+  /// Returns a backend that is focused on performance.
+  ///
+  /// The first choice is using direct sqlite queries that
+  /// return the rows lazily, but might skip rows should
+  /// a row conversion after the first row fail. Note that
+  /// this should be extremely unlikely / impossible since
+  /// the current row mappings perform only very basic conversion.
+  pub fn default_lazy() -> Self {
+    CombinedStoreBackend::new(vec![
+      Box::new(LazyDBConnection::new(DATABASE_PATH)),
+      Box::new(EagerDBConnection::new(DATABASE_PATH_IMMUTABLE)),
+      Box::new(CommandBackend),
+    ])
+  }
+
+  /// Returns a backend that is focused solely on absolutely guaranteeing
+  /// correct results at the cost of memory usage and database speed.
+  ///
+  /// Note that [DATABASE_PATH_IMMUTABLE] is not used here, since opening
+  /// the database can lead to undefined results (also silently with no errors)
+  /// if the database is actually modified while opened.
+  pub fn default_eager() -> Self {
+    CombinedStoreBackend::new(vec![
+      Box::new(EagerDBConnection::new(DATABASE_PATH)),
+      Box::new(CommandBackend),
+    ])
+  }
+
   // tries to execute a query until it succeeds or all connected backends have
   // been tried
   fn fallback_query<'b, F, Ret>(&'b self, query: F, path: &Path) -> Result<Ret>
@@ -121,11 +154,7 @@ impl<'a> CombinedStoreBackend<'a> {
 
 impl<'a> Default for CombinedStoreBackend<'a> {
   fn default() -> Self {
-    CombinedStoreBackend::new(vec![
-      Box::new(DBConnection::new(DATABASE_PATH)),
-      Box::new(DBConnection::new(DATABASE_PATH_IMMUTABLE)),
-      Box::new(CommandBackend),
-    ])
+    Self::default_lazy()
   }
 }
 

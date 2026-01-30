@@ -57,7 +57,7 @@ fn nix_command_query<'a>(
 }
 
 impl<'a> StoreBackend<'a> for CommandBackend {
-  /// Does nothing (we spawn a new process everytime).
+  /// Does nothing (we spawn a new process every time).
   fn connect(&mut self) -> Result<()> {
     Ok(())
   }
@@ -80,6 +80,15 @@ impl<'a> StoreBackend<'a> for CommandBackend {
       .arg(path.join("sw"))
       .output()
       .context(anyhow!("Encountered error while executing nix command"))?;
+
+    if !cmd_res.status.success() {
+      let stderr = String::from_utf8_lossy(&cmd_res.stderr);
+      return Err(anyhow!(
+        "nix command exited with non-zero status {}: {}",
+        cmd_res.status,
+        stderr.trim()
+      ));
+    }
     let text = str::from_utf8(&cmd_res.stdout)?;
     if let Some(bytes_text) = text.split_whitespace().last()
       && let Ok(bytes) = bytes_text.parse::<u64>()

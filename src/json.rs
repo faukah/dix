@@ -70,7 +70,7 @@ pub fn display_diff(
     size_old,
     size_new,
   })?;
-  print!("{json}");
+  println!("{json}");
   Ok(())
 }
 

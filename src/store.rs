@@ -8,10 +8,6 @@ mod db_lazy;
 mod nix_command;
 mod queries;
 
-pub mod store {
-  pub use crate::store::db_lazy::LazyDBConnection;
-}
-
 use std::{
   fmt::Display,
   iter::Iterator,
@@ -25,13 +21,11 @@ use anyhow::{
 use log::warn;
 use size::Size;
 
-use crate::{
-  StorePath,
-  store::{
-    db_eager::EagerDBConnection,
-    nix_command::CommandBackend,
-    store::LazyDBConnection,
-  },
+use crate::StorePath;
+pub use crate::store::{
+  db_eager::EagerDBConnection,
+  db_lazy::LazyDBConnection,
+  nix_command::CommandBackend,
 };
 /// The normal database connection
 pub const DATABASE_PATH: &str = "file:/nix/var/nix/db/db.sqlite";

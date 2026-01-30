@@ -28,7 +28,7 @@ pub use diff::{
   write_size_diff,
 };
 
-mod store;
+pub mod store;
 
 pub mod version;
 use version::Version;

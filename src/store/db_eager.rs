@@ -13,7 +13,6 @@ use anyhow::{
 use rusqlite::Row;
 
 use crate::{
-  DerivationId,
   StorePath,
   path_to_canonical_string,
   store::{
@@ -115,18 +114,5 @@ impl<'a> StoreBackend<'a> for EagerDBConnection<'_> {
     self.execute_row_query_with_path(queries::QUERY_DEPENDENTS, path, |row| {
       Ok(StorePath(row.get::<_, String>(0)?.into()))
     })
-  }
-
-  fn query_dependency_graph(
-    &self,
-    path: &std::path::Path,
-  ) -> Result<
-    Box<dyn Iterator<Item = (crate::DerivationId, crate::DerivationId)> + '_>,
-  > {
-    self.execute_row_query_with_path(
-      queries::QUERY_DEPENDENCY_GRAPH,
-      path,
-      |row| Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?))),
-    )
   }
 }

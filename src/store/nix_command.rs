@@ -18,7 +18,6 @@ use anyhow::{
 use size::Size;
 
 use crate::{
-  DerivationId,
   StorePath,
   store::StoreBackend,
 };
@@ -107,18 +106,5 @@ impl<'a> StoreBackend<'a> for CommandBackend {
     path: &Path,
   ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
     nix_command_query(&["--query", "--requisites", &*path.to_string_lossy()])
-  }
-
-  /// This is currently not supported by this final fallback
-  ///
-  /// Always returns an error
-  fn query_dependency_graph(
-    &self,
-    path: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>> {
-    Err(anyhow!(
-      "The nix command backend does not support querying the dependency \
-       graph. (path: {path:?})"
-    ))
   }
 }

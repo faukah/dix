@@ -26,7 +26,6 @@ use log::warn;
 use size::Size;
 
 use crate::{
-  DerivationId,
   StorePath,
   store::{
     db_eager::EagerDBConnection,
@@ -62,11 +61,6 @@ pub trait StoreBackend<'a> {
     &self,
     path: &Path,
   ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>>;
-  #[expect(dead_code)]
-  fn query_dependency_graph(
-    &self,
-    path: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>>;
 }
 
 /// wrapper trait for debug information
@@ -243,16 +237,6 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
     self
       .fallback_query(|backend, path| (**backend).query_dependents(path), path)
   }
-
-  fn query_dependency_graph(
-    &self,
-    path: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>> {
-    self.fallback_query(
-      |backend, path| (**backend).query_dependency_graph(path),
-      path,
-    )
-  }
 }
 
 #[cfg(test)]
@@ -329,14 +313,6 @@ mod test {
       &self,
       _path: &Path,
     ) -> Result<Box<dyn Iterator<Item = StorePath> + '_>> {
-      unimplemented!()
-    }
-
-    fn query_dependency_graph(
-      &self,
-      _path: &Path,
-    ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>>
-    {
       unimplemented!()
     }
   }

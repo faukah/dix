@@ -25,7 +25,6 @@ use rusqlite::{
 use size::Size;
 
 use crate::{
-  DerivationId,
   StorePath,
   path_to_canonical_string,
   store::{
@@ -255,20 +254,5 @@ impl<'a> StoreBackend<'a> for LazyDBConnection<'_> {
     self.execute_row_query_with_path(queries::QUERY_DEPENDENTS, path, |row| {
       Ok(StorePath(row.get::<_, String>(0)?.into()))
     })
-  }
-
-  /// Returns all edges of the dependency graph.
-  ///
-  /// You might want to build an adjacency list from the resulting
-  /// edges.
-  fn query_dependency_graph(
-    &self,
-    path: &Path,
-  ) -> Result<Box<dyn Iterator<Item = (DerivationId, DerivationId)> + '_>> {
-    self.execute_row_query_with_path(
-      queries::QUERY_DEPENDENCY_GRAPH,
-      path,
-      |row| Ok((DerivationId(row.get(0)?), DerivationId(row.get(1)?))),
-    )
   }
 }

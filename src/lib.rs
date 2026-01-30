@@ -34,9 +34,6 @@ mod store;
 pub mod version;
 use version::Version;
 
-#[derive(Deref, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct DerivationId(i64);
-
 /// A validated store path. Always starts with `/nix/store`.
 ///
 /// Can be created using `StorePath::try_from(path_buf)`.

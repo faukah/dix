@@ -1,11 +1,11 @@
 [package]
 name        = "dix"
-description = "Diff Nix"
 version     = "1.4.1"
-license     = "GPL-3.0-only"
 edition     = "2024"
+description = "Diff Nix"
 homepage    = "https://github.com/faukah/dix"
 repository  = "https://github.com/faukah/dix"
+license     = "GPL-3.0-only"
 keywords    = [ "nix", "nixos" ]
 
 [dependencies]
@@ -28,29 +28,21 @@ yansi               = { features = [ "detect-env", "detect-tty" ], version = "1.
 [dev-dependencies]
 proptest = "1.6.0"
 
-[profile.release]
-lto       = "fat"
-opt-level = 3
-
 # See:
 #  <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>
 [lints.clippy]
-cargo      = { level = "warn", priority = -1 }
-complexity = { level = "warn", priority = -1 }
-nursery    = { level = "warn", priority = -1 }
-pedantic   = { level = "warn", priority = -1 }
-perf       = { level = "warn", priority = -1 }
-style      = { level = "warn", priority = -1 }
-
 # The lint groups above enable some less-than-desirable rules, we should manually
 # enable those to keep our sanity.
 absolute_paths                       = "allow"
 arbitrary_source_item_ordering       = "allow"
+cargo                                = { level = "warn", priority = -1 }
 clone_on_ref_ptr                     = "warn"
+complexity                           = { level = "warn", priority = -1 }
 dbg_macro                            = "warn"
 empty_drop                           = "warn"
 empty_structs_with_brackets          = "warn"
 exit                                 = "warn"
+expect_used                          = "warn"
 filetype_is_file                     = "warn"
 get_unwrap                           = "warn"
 implicit_return                      = "allow"
@@ -59,8 +51,13 @@ map_with_unused_argument_over_ranges = "warn"
 missing_docs_in_private_items        = "allow"
 non_ascii_literal                    = "allow"
 non_std_lazy_statics                 = "warn"
+nursery                              = { level = "warn", priority = -1 }
 pathbuf_init_then_push               = "warn"
 pattern_type_mismatch                = "allow"
+pedantic                             = { level = "warn", priority = -1 }
+perf                                 = { level = "warn", priority = -1 }
+print_stderr                         = "warn"
+print_stdout                         = "warn"
 question_mark_used                   = "allow"
 rc_buffer                            = "warn"
 rc_mutex                             = "warn"
@@ -68,16 +65,17 @@ rest_pat_in_fully_bound_structs      = "warn"
 similar_names                        = "allow"
 single_call_fn                       = "allow"
 std_instead_of_core                  = "allow"
+style                                = { level = "warn", priority = -1 }
+todo                                 = "warn"
 too_long_first_doc_paragraph         = "allow"
 too_many_lines                       = "allow"
 undocumented_unsafe_blocks           = "warn"
+unimplemented                        = "warn"
 unnecessary_safety_comment           = "warn"
+unreachable                          = "warn"
 unused_result_ok                     = "warn"
 unused_trait_names                   = "allow"
 
-expect_used   = "warn"
-print_stderr  = "warn"
-print_stdout  = "warn"
-todo          = "warn"
-unimplemented = "warn"
-unreachable   = "warn"
+[profile.release]
+lto       = "fat"
+opt-level = 3

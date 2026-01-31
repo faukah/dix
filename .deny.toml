@@ -55,10 +55,10 @@ confidence-threshold = 0.93
 [[licenses.clarify]]
 crate         = "webpki"
 expression    = "ISC"
-license-files = [ { path = "LICENSE", hash = 0x001c7e6c } ]
+license-files = [ { hash = 0x001c7e6c, path = "LICENSE" } ]
 
 # Actually "ISC-style".
 [[licenses.clarify]]
 crate         = "rustls-webpki"
 expression    = "ISC"
-license-files = [ { path = "LICENSE", hash = 0x001c7e6c } ]
+license-files = [ { hash = 0x001c7e6c, path = "LICENSE" } ]

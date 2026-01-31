@@ -1,6 +1,6 @@
 [package]
 name        = "dix"
-version     = "1.4.1"
+version     = "1.4.2"
 edition     = "2024"
 description = "Diff Nix"
 homepage    = "https://github.com/faukah/dix"

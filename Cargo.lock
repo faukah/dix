@@ -246,6 +246,7 @@ dependencies = [
  "regex",
  "rusqlite",
  "size",
+ "tempfile",
  "unicode-width",
  "yansi",
 ]

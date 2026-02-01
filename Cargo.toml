@@ -26,7 +26,8 @@ unicode-width       = "0.2.0"
 yansi               = { features = [ "detect-env", "detect-tty" ], version = "1.0.1" }
 
 [dev-dependencies]
-proptest = "1.6.0"
+proptest  = "1.6.0"
+tempfile  = "3.10.0"
 
 # See:
 #  <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>

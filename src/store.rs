@@ -8,6 +8,9 @@ mod db_lazy;
 mod nix_command;
 mod queries;
 
+#[cfg(test)]
+mod test_utils;
+
 pub mod store {
   pub use crate::store::db_lazy::LazyDBConnection;
 }

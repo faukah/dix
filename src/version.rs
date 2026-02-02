@@ -171,11 +171,13 @@ impl<'a> VersionPiece<'a> {
 #[derive(Display, Debug, Clone, Copy, Deref, PartialEq, Eq)]
 pub struct VersionComponent<'a>(&'a str);
 
-impl<'a> VersionComponent<'a> {
+impl VersionComponent<'_> {
+  #[must_use]
   pub fn is_numeric(&self) -> bool {
     !self.0.is_empty() && self.0.bytes().all(|b| b.is_ascii_digit())
   }
 
+  #[must_use]
   pub fn as_u64(&self) -> Option<u64> {
     if self.is_numeric() {
       self.0.parse().ok()

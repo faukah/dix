@@ -249,7 +249,7 @@ pub fn write_package_diff(
 
   // Generate and write the diff
   tracing::debug!("generating and writing package diff");
-  let count = write_packages_diffln(
+  let count = write_packages_diff(
     writer,
     paths_old,
     paths_new,
@@ -262,27 +262,8 @@ pub fn write_package_diff(
   count
 }
 
-/// Writes a package diff between two paths to the provided writer.
-///
-/// This function is deprecated. Use [`write_package_diff`] instead.
-/// # Errors
-///
-/// Returns an error if:
-/// - Failed to connect to the store
-/// - Failed to query dependencies or system derivations
-/// - Failed to write to the output
-#[deprecated(since = "1.4.0", note = "Use `write_package_diff` instead")]
-pub fn write_paths_diffln(
-  writer: &mut impl fmt::Write,
-  path_old: &Path,
-  path_new: &Path,
-) -> Result<usize> {
-  // Setting `force_correctness` to false mimics the old behaviour.
-  write_package_diff(writer, path_old, path_new, false)
-}
-
 /// Computes the Levenshtein distance between two slices.
-pub fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
+fn levenshtein<T: Eq>(from: &[T], to: &[T]) -> usize {
   let (from_len, to_len) = (from.len(), to.len());
 
   if from_len == 0 {
@@ -426,7 +407,7 @@ fn count_versions(versions: Vec<Version>) -> HashMap<Version, usize> {
 /// # Errors
 ///
 /// Returns an error if it fails writing to the `writer`
-pub fn write_packages_diffln(
+pub fn write_packages_diff(
   writer: &mut impl fmt::Write,
   paths_old: impl Iterator<Item = StorePath>,
   paths_new: impl Iterator<Item = StorePath>,
@@ -856,7 +837,7 @@ fn fmt_version_piece_pair(
 }
 
 /// Spawns a background task to compute the closure sizes required by
-/// [`write_size_diffln`].
+/// [`write_size_diff`].
 ///
 /// This function offloads the potentially expensive operation of calculating
 /// closure sizes to a separate thread, allowing the main thread to continue
@@ -922,22 +903,6 @@ pub fn write_size_diff(
       size_diff.red()
     },
   )
-}
-
-/// Writes a size diff between two sizes to the provided writer.
-///
-/// This function is deprecated. Use [`write_size_diff`] instead.
-///
-/// # Errors
-///
-/// Returns `Err` when writing to `writer` fails.
-#[deprecated(since = "1.4.0", note = "Use `write_size_diff` instead")]
-pub fn write_size_diffln(
-  writer: &mut impl fmt::Write,
-  size_old: Size,
-  size_new: Size,
-) -> fmt::Result {
-  write_size_diff(writer, size_old, size_new)
 }
 
 /// Generates diff objects from a mapping of package names to old and new

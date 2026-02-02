@@ -17,17 +17,13 @@ use eyre::{
 };
 
 pub mod diff;
-#[expect(deprecated)]
 pub use diff::{
   generate_diffs_from_paths,
-  levenshtein,
   match_version_lists,
   spawn_size_diff,
   write_package_diff,
-  // Keep old functions for backward compatibility
-  write_paths_diffln,
+  write_packages_diff,
   write_size_diff,
-  write_size_diffln,
 };
 
 mod store;

@@ -8,7 +8,6 @@ use std::{
   io::{
     self,
     IsTerminal as _,
-    Write as _,
   },
   path::PathBuf,
 };
@@ -84,22 +83,35 @@ fn main() -> eyre::Result<()> {
     clap::ColorChoice::Never => yansi::Condition::NEVER,
   });
 
-  env_logger::Builder::new()
-    .filter_level(verbose.log_level_filter())
-    .format(|out, arguments| {
-      let header = match arguments.level() {
-        log::Level::Error => "error:".red(),
-        log::Level::Warn => "warn:".yellow(),
-        log::Level::Info => "info:".green(),
-        log::Level::Debug => "debug:".blue(),
-        log::Level::Trace => "trace:".cyan(),
-      };
-
-      writeln!(out, "{header} {message}", message = arguments.args())
-    })
+  tracing_subscriber::fmt()
+    .with_env_filter(
+      tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(match verbose.log_level_filter() {
+          clap_verbosity_flag::log::LevelFilter::Off => {
+            tracing::Level::ERROR.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Error => {
+            tracing::Level::ERROR.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Warn => {
+            tracing::Level::WARN.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Info => {
+            tracing::Level::INFO.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Debug => {
+            tracing::Level::DEBUG.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Trace => {
+            tracing::Level::TRACE.into()
+          },
+        })
+        .from_env_lossy(),
+    )
+    .with_target(false)
     .init();
   if force_correctness {
-    log::warn!(
+    tracing::warn!(
       "Falling back to slower but more robust backends (force_correctness is \
        set)."
     );

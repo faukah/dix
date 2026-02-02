@@ -24,8 +24,8 @@ use eyre::{
   Result,
   eyre,
 };
-use log::warn;
 use size::Size;
+use tracing::warn;
 
 use crate::{
   StorePath,

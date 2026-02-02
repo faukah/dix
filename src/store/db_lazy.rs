@@ -15,7 +15,6 @@ use eyre::{
   Result,
   eyre,
 };
-use log::warn;
 use ouroboros::self_referencing;
 use rusqlite::{
   CachedStatement,
@@ -23,6 +22,7 @@ use rusqlite::{
   Row,
 };
 use size::Size;
+use tracing::warn;
 
 use crate::{
   StorePath,
@@ -107,7 +107,7 @@ where
           let iter_filtered = iter.filter_map(
             (|row| {
               if let Err(ref err) = row {
-                log::warn!("Row conversion failed: {err:?}");
+                tracing::warn!("Row conversion failed: {err:?}");
               }
               row.ok()
             }) as FilterOkFunc<T>,

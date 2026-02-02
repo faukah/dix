@@ -1,7 +1,7 @@
 #![allow(clippy::mem_forget)]
 //! Provides an interface for querying data from the nix store.
 //!
-//! - [LazyDBConnection] is a lazy connection the underlying sqlite database.
+//! - [`LazyDBConnection`] is a lazy connection the underlying sqlite database.
 mod db_common;
 mod db_eager;
 mod db_lazy;
@@ -102,7 +102,7 @@ impl<'a> CombinedStoreBackend<'a> {
   /// Returns a backend that is focused solely on absolutely guaranteeing
   /// correct results at the cost of memory usage and database speed.
   ///
-  /// Note that [DATABASE_PATH_IMMUTABLE] is not used here, since opening
+  /// Note that [`DATABASE_PATH_IMMUTABLE`] is not used here, since opening
   /// the database can lead to undefined results (also silently with no errors)
   /// if the database is actually modified while opened.
   pub fn default_eager() -> Self {
@@ -148,7 +148,7 @@ impl<'a> CombinedStoreBackend<'a> {
   }
 }
 
-impl<'a> Default for CombinedStoreBackend<'a> {
+impl Default for CombinedStoreBackend<'_> {
   fn default() -> Self {
     Self::default_lazy()
   }
@@ -190,7 +190,7 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
     if let Some(err) = &combined_err
       && any_succeeded
     {
-      warn!("Some backends failed to connect: {err}")
+      warn!("Some backends failed to connect: {err}");
     }
     if any_succeeded {
       Ok(())
@@ -212,21 +212,20 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
   fn close(&mut self) -> Result<()> {
     let mut combined_err: Option<eyre::Report> = None;
     for (i, backend) in self.backends.iter_mut().enumerate() {
-      if backend.connected() {
-        if let Err(err) = backend.close() {
-          warn!("Unable to close store backend {i}: {backend}. (error: {err})");
-          combined_err = match combined_err {
-            Some(combined) => Some(combined.wrap_err(err.to_string())),
-            None => Some(err),
-          };
-        }
+      if backend.connected()
+        && let Err(err) = backend.close()
+      {
+        warn!("Unable to close store backend {i}: {backend}. (error: {err})");
+        combined_err = match combined_err {
+          Some(combined) => Some(combined.wrap_err(err.to_string())),
+          None => Some(err),
+        };
       }
     }
-    if let Some(err) = combined_err {
-      Err(err.wrap_err("One or more backends failed to close."))
-    } else {
-      Ok(())
-    }
+    combined_err.map_or_else(
+      || Ok(()),
+      |err| Err(err.wrap_err("One or more backends failed to close.")),
+    )
   }
 
   fn query_closure_size(&self, path: &Path) -> Result<Size> {
@@ -290,7 +289,7 @@ mod test {
     }
   }
 
-  impl<'a> StoreBackend<'a> for MockStoreBackend {
+  impl StoreBackend<'_> for MockStoreBackend {
     fn connect(&mut self) -> Result<()> {
       if self.fail_connect {
         Err(eyre!("Connection failed"))

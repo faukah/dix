@@ -59,7 +59,7 @@ fn nix_command_query<'a>(
   Ok(Box::new(paths.into_iter()))
 }
 
-impl<'a> StoreBackend<'a> for CommandBackend {
+impl StoreBackend<'_> for CommandBackend {
   /// Does nothing (we spawn a new process everytime).
   fn connect(&mut self) -> Result<()> {
     Ok(())

@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use anyhow::{
+use eyre::{
   Context as _,
   Result,
-  anyhow,
+  eyre,
 };
 use rusqlite::{
   Connection,
@@ -70,11 +70,11 @@ pub(crate) fn default_close_inner_connection(
   maybe_conn: &mut Option<Connection>,
 ) -> Result<()> {
   let conn = maybe_conn.take().ok_or_else(|| {
-    anyhow!("Tried to close connection to {} that does not exist", path)
+    eyre!("Tried to close connection to {} that does not exist", path)
   })?;
   conn.close().map_err(|(conn_old, err)| {
     *maybe_conn = Some(conn_old);
-    anyhow::Error::from(err).context("failed to close Nix database")
+    eyre::Report::from(err).wrap_err("failed to close Nix database")
   })
 }
 

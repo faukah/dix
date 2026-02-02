@@ -20,7 +20,7 @@ use std::{
 };
 
 use ::std::hash::BuildHasher;
-use anyhow::{
+use eyre::{
   Context as _,
   Error,
   Result,

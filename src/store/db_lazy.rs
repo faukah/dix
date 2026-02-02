@@ -10,10 +10,10 @@ use std::{
   path::Path,
 };
 
-use anyhow::{
+use eyre::{
   Context,
   Result,
-  anyhow,
+  eyre,
 };
 use log::warn;
 use ouroboros::self_referencing;
@@ -102,7 +102,7 @@ where
         Ok(mut iter) => {
           #[expect(clippy::pattern_type_mismatch)]
           if let Some(Err(err)) = iter.peek() {
-            return Err(anyhow!("First row conversion failed: {err:?}"));
+            return Err(eyre!("First row conversion failed: {err:?}"));
           }
           let iter_filtered = iter.filter_map(
             (|row| {
@@ -169,7 +169,7 @@ impl<'a> LazyDBConnection<'a> {
     self
       .conn
       .as_ref()
-      .ok_or_else(|| anyhow!("Attempted to use database before connecting."))
+      .ok_or_else(|| eyre!("Attempted to use database before connecting."))
   }
   /// Executes a query that returns multiple rows and returns
   /// an iterator over them where the `map` is used to map

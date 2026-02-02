@@ -11,14 +11,10 @@ use std::{
     Write as _,
   },
   path::PathBuf,
-  process,
 };
 
-use anyhow::{
-  Result,
-  anyhow,
-};
 use clap::Parser as _;
+use eyre::eyre;
 use yansi::Paint as _;
 
 struct WriteFmt<W: io::Write>(W);
@@ -59,7 +55,7 @@ struct Cli {
   force_correctness: bool,
 }
 
-fn real_main() -> Result<()> {
+fn main() -> eyre::Result<()> {
   let Cli {
     old_path,
     new_path,
@@ -70,13 +66,13 @@ fn real_main() -> Result<()> {
 
   // Validate that both paths exist before proceeding
   if !old_path.exists() {
-    return Err(anyhow!(
+    return Err(eyre!(
       "old profile path does not exist: {}",
       old_path.display()
     ));
   }
   if !new_path.exists() {
-    return Err(anyhow!(
+    return Err(eyre!(
       "new profile path does not exist: {}",
       new_path.display()
     ));
@@ -134,7 +130,7 @@ fn real_main() -> Result<()> {
     dix::write_package_diff(&mut out, &old_path, &new_path, force_correctness)?;
 
   let (size_old, size_new) = closure_size_handle.join().map_err(|_| {
-    anyhow!(
+    eyre!(
       "failed to get closure size due to thread
   error"
     )
@@ -147,56 +143,6 @@ fn real_main() -> Result<()> {
   dix::write_size_diff(&mut out, size_old, size_new)?;
 
   Ok(())
-}
-
-#[allow(clippy::allow_attributes, clippy::exit)]
-fn main() {
-  let Err(error) = real_main() else {
-    return;
-  };
-
-  let mut err = io::stderr();
-
-  let mut message = String::new();
-  let mut chain = error.chain().rev().peekable();
-
-  while let Some(error) = chain.next() {
-    let _ = write!(
-      err,
-      "{header} ",
-      header = if chain.peek().is_none() {
-        "error:"
-      } else {
-        "cause:"
-      }
-      .red()
-      .bold(),
-    );
-
-    String::clear(&mut message);
-    let _ = write!(message, "{error}");
-
-    let mut chars = message.char_indices();
-
-    let _ = match (chars.next(), chars.next()) {
-      (Some((_, first)), Some((second_start, second)))
-        if second.is_lowercase() =>
-      {
-        writeln!(
-          err,
-          "{first_lowercase}{rest}",
-          first_lowercase = first.to_lowercase(),
-          rest = &message[second_start..],
-        )
-      },
-
-      _ => {
-        writeln!(err, "{message}")
-      },
-    };
-  }
-
-  process::exit(1);
 }
 
 // https://bixense.com/clicolors/

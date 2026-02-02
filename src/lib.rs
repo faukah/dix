@@ -6,14 +6,15 @@ use std::{
   sync,
 };
 
-use anyhow::{
+use derive_more::Deref;
+use eyre::{
   Context as _,
+  ContextCompat as _,
   Error,
   Result,
-  anyhow,
   bail,
+  eyre,
 };
-use derive_more::Deref;
 
 pub mod diff;
 #[expect(deprecated)]
@@ -88,7 +89,7 @@ impl StorePath {
     log::trace!("stripped path: {path}");
 
     let captures = STORE_PATH_REGEX.captures(path).ok_or_else(|| {
-      anyhow!("path '{path}' does not match expected Nix store format")
+      eyre!("path '{path}' does not match expected Nix store format")
     })?;
 
     let name = captures.get(1).map_or("", |capture| capture.as_str());
@@ -113,7 +114,7 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
   })?;
 
   let path = path.into_os_string().into_string().map_err(|path| {
-    anyhow!(
+    eyre!(
       "failed to convert path '{path}' to valid unicode",
       path = Path::new(&*path).display(), /* TODO: use .display() directly
                                            * after Rust 1.87.0 in flake. */

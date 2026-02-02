@@ -8,8 +8,7 @@ mod db_lazy;
 mod nix_command;
 mod queries;
 
-#[cfg(test)]
-mod test_utils;
+#[cfg(test)] mod test_utils;
 
 pub mod store {
   pub use crate::store::db_lazy::LazyDBConnection;
@@ -21,9 +20,9 @@ use std::{
   path::Path,
 };
 
-use anyhow::{
+use eyre::{
   Result,
-  anyhow,
+  eyre,
 };
 use log::warn;
 use size::Size;
@@ -119,7 +118,7 @@ impl<'a> CombinedStoreBackend<'a> {
   where
     F: Fn(&'b Box<dyn StoreBackendPrintable<'a>>, &Path) -> Result<Ret>,
   {
-    let mut combined_err: Option<anyhow::Error> = None;
+    let mut combined_err: Option<eyre::Report> = None;
     // attempt to cycle through backends until a successful query is made
     for (i, backend) in self.backends.iter().enumerate() {
       if !backend.connected() {
@@ -138,14 +137,14 @@ impl<'a> CombinedStoreBackend<'a> {
             &err
           );
           combined_err = match combined_err {
-            Some(combined) => Some(combined.context(err)),
+            Some(combined) => Some(combined.wrap_err(err.to_string())),
             None => Some(err),
           };
         },
       }
     }
     warn!("All store backends for path {path:?} failed");
-    Err(combined_err.unwrap_or_else(|| anyhow!("No internal stores to query.")))
+    Err(combined_err.unwrap_or_else(|| eyre!("No internal stores to query.")))
   }
 }
 
@@ -158,7 +157,7 @@ impl<'a> Default for CombinedStoreBackend<'a> {
 impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
   /// connects to all backends. Returns an error if all backends fail
   fn connect(&mut self) -> Result<()> {
-    let mut combined_err: Option<anyhow::Error> = None;
+    let mut combined_err: Option<eyre::Report> = None;
     // connect, collecting the errors as we go
     for (i, backend) in self.backends.iter_mut().enumerate() {
       if let Err(err) = backend.connect() {
@@ -167,7 +166,7 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
            (error: {err})"
         );
         combined_err = match combined_err {
-          Some(combined) => Some(combined.context(err)),
+          Some(combined) => Some(combined.wrap_err(err.to_string())),
           None => Some(err),
         }
       }
@@ -183,8 +182,8 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
       Ok(())
     } else {
       combined_err =
-        combined_err.map(|err| err.context("All backends failed to connect."));
-      Err(combined_err.unwrap_or_else(|| anyhow!("No backends to connect to.")))
+        combined_err.map(|err| err.wrap_err("All backends failed to connect."));
+      Err(combined_err.unwrap_or_else(|| eyre!("No backends to connect to.")))
     }
   }
 
@@ -197,20 +196,20 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
   ///
   /// If some fail to close, the combined error is returned.
   fn close(&mut self) -> Result<()> {
-    let mut combined_err: Option<anyhow::Error> = None;
+    let mut combined_err: Option<eyre::Report> = None;
     for (i, backend) in self.backends.iter_mut().enumerate() {
       if backend.connected() {
         if let Err(err) = backend.close() {
           warn!("Unable to close store backend {i}: {backend}. (error: {err})");
           combined_err = match combined_err {
-            Some(combined) => Some(combined.context(err)),
+            Some(combined) => Some(combined.wrap_err(err.to_string())),
             None => Some(err),
           };
         }
       }
     }
     if let Some(err) = combined_err {
-      Err(err.context("One or more backends failed to close."))
+      Err(err.wrap_err("One or more backends failed to close."))
     } else {
       Ok(())
     }
@@ -280,7 +279,7 @@ mod test {
   impl<'a> StoreBackend<'a> for MockStoreBackend {
     fn connect(&mut self) -> Result<()> {
       if self.fail_connect {
-        Err(anyhow!("Connection failed"))
+        Err(eyre!("Connection failed"))
       } else {
         self.connected = true;
         Ok(())
@@ -299,7 +298,7 @@ mod test {
     fn query_closure_size(&self, _path: &Path) -> Result<Size> {
       *self.query_called.borrow_mut() = true;
       if self.fail_query {
-        Err(anyhow!("Query failed"))
+        Err(eyre!("Query failed"))
       } else {
         Ok(Size::from_bytes(100))
       }

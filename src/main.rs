@@ -68,6 +68,20 @@ fn real_main() -> Result<()> {
     force_correctness,
   } = Cli::parse();
 
+  // Validate that both paths exist before proceeding
+  if !old_path.exists() {
+    return Err(anyhow!(
+      "old profile path does not exist: {}",
+      old_path.display()
+    ));
+  }
+  if !new_path.exists() {
+    return Err(anyhow!(
+      "new profile path does not exist: {}",
+      new_path.display()
+    ));
+  }
+
   yansi::whenever(match color {
     clap::ColorChoice::Auto => yansi::Condition::from(should_style),
     clap::ColorChoice::Always => yansi::Condition::ALWAYS,

@@ -271,4 +271,193 @@ mod tests {
     assert!(Version::new("1.0.0-beta.11") > Version::new("1.0.0-beta.2"));
     assert_eq!(Version::new("1.0.0"), Version::new("1.0.0"));
   }
+
+  #[test]
+  fn version_piece_iterator_includes_separators() {
+    let version = Version::new("1.2.3-alpha");
+    let pieces: Vec<_> = version.into_iter().collect();
+    assert_eq!(pieces.len(), 7);
+    assert!(matches!(pieces[0], VersionPiece::Component(_)));
+    assert!(matches!(pieces[1], VersionPiece::Separator(".")));
+    assert!(matches!(pieces[2], VersionPiece::Component(_)));
+    assert!(matches!(pieces[3], VersionPiece::Separator(".")));
+    assert!(matches!(pieces[4], VersionPiece::Component(_)));
+    assert!(matches!(pieces[5], VersionPiece::Separator("-")));
+    assert!(matches!(pieces[6], VersionPiece::Component(_)));
+  }
+
+  #[test]
+  fn version_piece_methods() {
+    let comp = VersionPiece::Component(VersionComponent("123"));
+    let sep = VersionPiece::Separator("-");
+
+    assert_eq!(comp.component(), Some(VersionComponent("123")));
+    assert_eq!(comp.separator(), None);
+    assert_eq!(sep.component(), None);
+    assert_eq!(sep.separator(), Some("-"));
+  }
+
+  #[test]
+  fn version_component_is_numeric() {
+    assert!(VersionComponent("123").is_numeric());
+    assert!(VersionComponent("0").is_numeric());
+    assert!(!VersionComponent("abc").is_numeric());
+    assert!(!VersionComponent("123abc").is_numeric());
+    assert!(!VersionComponent("").is_numeric());
+    assert!(!VersionComponent("12.3").is_numeric());
+  }
+
+  #[test]
+  fn version_component_as_u64() {
+    assert_eq!(VersionComponent("123").as_u64(), Some(123));
+    assert_eq!(VersionComponent("0").as_u64(), Some(0));
+    assert_eq!(
+      VersionComponent("18446744073709551615").as_u64(),
+      Some(u64::MAX)
+    );
+    assert_eq!(VersionComponent("abc").as_u64(), None);
+    assert_eq!(VersionComponent("123abc").as_u64(), None);
+    assert_eq!(VersionComponent("").as_u64(), None);
+  }
+
+  #[test]
+  fn component_comparison_numeric() {
+    assert!(VersionComponent("10") > VersionComponent("2"));
+    assert!(VersionComponent("2") < VersionComponent("10"));
+    assert_eq!(VersionComponent("5"), VersionComponent("5"));
+  }
+
+  #[test]
+  fn component_comparison_text() {
+    assert!(VersionComponent("beta") > VersionComponent("alpha"));
+    assert!(VersionComponent("rc") > VersionComponent("beta"));
+    assert_eq!(VersionComponent("stable"), VersionComponent("stable"));
+  }
+
+  #[test]
+  fn component_comparison_pre_special_case() {
+    assert!(VersionComponent("pre") < VersionComponent("alpha"));
+    assert!(VersionComponent("pre") > VersionComponent("1")); // text > numeric
+    assert!(VersionComponent("alpha") > VersionComponent("pre"));
+  }
+
+  #[test]
+  fn component_comparison_mixed_types() {
+    assert!(VersionComponent("2") < VersionComponent("alpha"));
+    assert!(VersionComponent("alpha") > VersionComponent("2"));
+  }
+
+  #[test]
+  fn component_comparison_mixed_alphanumeric() {
+    assert_eq!(VersionComponent("2test234"), VersionComponent("2test234"));
+    assert!(VersionComponent("abc123") > VersionComponent("123abc"));
+  }
+
+  #[test]
+  fn version_comparison_equal_lengths() {
+    assert!(Version::new("1.2.3") > Version::new("1.2.2"));
+    assert!(Version::new("1.2.3") < Version::new("1.2.4"));
+    assert_eq!(Version::new("1.2.3"), Version::new("1.2.3"));
+  }
+
+  #[test]
+  fn version_comparison_pre_release_edge_cases() {
+    assert!(Version::new("1.0.0") > Version::new("1.0.0-alpha"));
+    assert!(Version::new("1.0.0-alpha") < Version::new("1.0.0"));
+    assert!(Version::new("1.0.0-alpha") < Version::new("1.0.0-beta"));
+    assert!(Version::new("1.0.0-1") < Version::new("1.0.0-2"));
+    assert!(Version::new("1.0.0-9") < Version::new("1.0.0-10"));
+  }
+
+  #[test]
+  fn version_comparison_numeric_extensions() {
+    assert!(Version::new("1.0.0.1") > Version::new("1.0.0"));
+    assert!(Version::new("1.0.0") < Version::new("1.0.0.1"));
+  }
+
+  #[test]
+  fn version_display() {
+    let v1 = Version::new("1.2.3");
+    assert_eq!(format!("{v1}"), "1.2.3");
+
+    let mut v2 = Version::new("1.2.3");
+    v2.amount = 5;
+    assert_eq!(format!("{v2}"), "1.2.3 ×5");
+  }
+
+  #[test]
+  fn version_write() {
+    use std::fmt::Write;
+
+    let mut v = Version::new("1.0");
+    write!(v, ".{}-beta", 2).unwrap();
+    assert_eq!(v.name, "1.0.2-beta");
+  }
+
+  #[test]
+  fn empty_version() {
+    let v = Version::new("");
+    assert_eq!(v.components().count(), 0);
+  }
+
+  #[test]
+  fn version_with_only_separators() {
+    let v = Version::new("...---___");
+    assert_eq!(v.components().count(), 0);
+  }
+
+  #[test]
+  fn version_from_string() {
+    let v1: Version = "1.2.3".into();
+    assert_eq!(v1.name, "1.2.3");
+
+    let v2: Version = String::from("4.5.6").into();
+    assert_eq!(v2.name, "4.5.6");
+  }
+
+  #[test]
+  fn various_separators() {
+    let v = Version::new("1_2+3=4*5×6 7");
+    let comps: Vec<_> = v.components().collect();
+    assert_eq!(comps.len(), 7); // 1, 2, 3, 4, 5, 6, 7
+    assert_eq!(comps[0].0, "1");
+    assert_eq!(comps[6].0, "7");
+  }
+
+  #[test]
+  fn complex_version_parsing() {
+    let v = Version::new("firefox-123.0.1_beta-1-x86_64");
+    let comps: Vec<_> = v.components().collect();
+    assert_eq!(comps[0].0, "firefox");
+    assert_eq!(comps[1].0, "123");
+    assert_eq!(comps[2].0, "0");
+    assert_eq!(comps[3].0, "1"); // _ is a separator, so "1_beta" splits
+    assert_eq!(comps[4].0, "beta");
+    assert_eq!(comps[5].0, "1");
+    assert_eq!(comps[6].0, "x86"); // _ is a separator, so "x86_64" splits
+    assert_eq!(comps[7].0, "64");
+  }
+
+  #[test]
+  fn version_clone_and_eq() {
+    let v1 = Version::new("1.0.0");
+    let v2 = v1.clone();
+    assert_eq!(v1, v2);
+    assert_eq!(v1.name, v2.name);
+    assert_eq!(v1.amount, v2.amount);
+  }
+
+  #[test]
+  fn version_hash_consistency() {
+    use std::collections::HashSet;
+
+    let v1 = Version::new("1.0.0");
+    let v2 = Version::new("1.0.0");
+    let v3 = Version::new("2.0.0");
+
+    let mut set = HashSet::new();
+    set.insert(v1);
+    assert!(set.contains(&v2));
+    assert!(!set.contains(&v3));
+  }
 }

@@ -63,19 +63,30 @@ fn main() -> eyre::Result<()> {
     force_correctness,
   } = Cli::parse();
 
+  tracing::debug!(
+    old_path = %old_path.display(),
+    new_path = %new_path.display(),
+    force_correctness = force_correctness,
+    "starting dix"
+  );
+
   // Validate that both paths exist before proceeding
   if !old_path.exists() {
+    tracing::error!(path = %old_path.display(), "old profile path does not exist");
     return Err(eyre!(
       "old profile path does not exist: {}",
       old_path.display()
     ));
   }
   if !new_path.exists() {
+    tracing::error!(path = %new_path.display(), "new profile path does not exist");
     return Err(eyre!(
       "new profile path does not exist: {}",
       new_path.display()
     ));
   }
+
+  tracing::info!(old_path = %old_path.display(), new_path = %new_path.display(), "paths validated");
 
   yansi::whenever(match color {
     clap::ColorChoice::Auto => yansi::Condition::from(should_style),
@@ -108,7 +119,9 @@ fn main() -> eyre::Result<()> {
         })
         .from_env_lossy(),
     )
+    .with_ansi(should_style())
     .with_target(false)
+    .without_time()
     .init();
   if force_correctness {
     tracing::warn!(
@@ -118,6 +131,8 @@ fn main() -> eyre::Result<()> {
   }
 
   let mut out = WriteFmt(io::stdout());
+
+  tracing::info!("starting diff computation");
 
   writeln!(
     out,
@@ -135,24 +150,32 @@ fn main() -> eyre::Result<()> {
   )?;
 
   // Handle to the thread collecting closure size information.
+  tracing::debug!("spawning closure size computation thread");
   let closure_size_handle =
     dix::spawn_size_diff(old_path.clone(), new_path.clone(), force_correctness);
 
+  tracing::debug!("computing package diff");
   let wrote =
     dix::write_package_diff(&mut out, &old_path, &new_path, force_correctness)?;
 
+  tracing::debug!("waiting for closure size thread to complete");
   let (size_old, size_new) = closure_size_handle.join().map_err(|_| {
+    tracing::error!("closure size thread panicked");
     eyre!(
       "failed to get closure size due to thread
   error"
     )
   })??;
 
+  tracing::info!(size_old = %size_old, size_new = %size_new, "closure sizes computed");
+
   if wrote > 0 {
     writeln!(out)?;
   }
 
   dix::write_size_diff(&mut out, size_old, size_new)?;
+
+  tracing::info!("diff computation complete");
 
   Ok(())
 }

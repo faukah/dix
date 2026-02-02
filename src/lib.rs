@@ -45,13 +45,15 @@ impl TryFrom<PathBuf> for StorePath {
   type Error = Error;
 
   fn try_from(path: PathBuf) -> Result<Self> {
+    tracing::trace!(path = %path.display(), "validating store path");
     if !path.starts_with("/nix/store") {
+      tracing::warn!(path = %path.display(), "path does not start with /nix/store");
       bail!(
         "path {path} must start with /nix/store",
         path = path.display(),
       );
     }
-
+    tracing::trace!(path = %path.display(), "store path validated");
     Ok(Self(path))
   }
 }
@@ -101,6 +103,8 @@ impl StorePath {
       Version::from(capture.as_str().trim_start_matches('-').to_owned())
     });
 
+    tracing::trace!(name = name, version = ?version, "parsed name and version from path");
+
     Ok((name, version))
   }
 }
@@ -114,6 +118,7 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
   })?;
 
   let path = path.into_os_string().into_string().map_err(|path| {
+    tracing::debug!("path contains invalid unicode characters");
     eyre!(
       "failed to convert path '{path}' to valid unicode",
       path = Path::new(&*path).display(), /* TODO: use .display() directly

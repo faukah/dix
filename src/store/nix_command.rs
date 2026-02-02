@@ -10,10 +10,10 @@ use std::{
   process::Command,
 };
 
-use anyhow::{
+use eyre::{
   Context,
   Result,
-  anyhow,
+  eyre,
 };
 use size::Size;
 
@@ -47,7 +47,7 @@ fn nix_command_query<'a>(
   // querying data is slow anyways
   let mut paths = Vec::new();
   for line in str::from_utf8(&query.stdout)?.lines() {
-    let path = StorePath::try_from(PathBuf::from(line)).context(anyhow!(
+    let path = StorePath::try_from(PathBuf::from(line)).context(eyre!(
       "encountered invalid path in nix command output: {line}"
     ))?;
     paths.push(path);
@@ -79,14 +79,14 @@ impl<'a> StoreBackend<'a> for CommandBackend {
       .arg("--closure-size")
       .arg(path.join("sw"))
       .output()
-      .context(anyhow!("Encountered error while executing nix command"))?;
+      .wrap_err("Encountered error while executing nix command")?;
     let text = str::from_utf8(&cmd_res.stdout)?;
     if let Some(bytes_text) = text.split_whitespace().last()
       && let Ok(bytes) = bytes_text.parse::<u64>()
     {
       Ok(Size::from_bytes(bytes))
     } else {
-      Err(anyhow!("Unable to parse closure size from nix output"))
+      Err(eyre!("Unable to parse closure size from nix output"))
     }
   }
 

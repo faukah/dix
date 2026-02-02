@@ -9,8 +9,8 @@ license     = "GPL-3.0-only"
 keywords    = [ "nix", "nixos" ]
 
 [dependencies]
-anyhow              = "1.0.98"
 clap                = { features = [ "derive" ], version = "4.5.37" }
+eyre                = "0.6"
 clap-verbosity-flag = "3.0.2"
 derive_more         = { features = [ "full" ], version = "2.0.1" }
 diff                = "0.1.13"

@@ -15,7 +15,7 @@ use std::{
   },
 };
 
-use anyhow::Result;
+use eyre::Result;
 use rusqlite::Connection;
 use tempfile::TempDir;
 

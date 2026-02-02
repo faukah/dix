@@ -6,9 +6,9 @@ use std::{
   path::Path,
 };
 
-use anyhow::{
+use eyre::{
   Result,
-  anyhow,
+  eyre,
 };
 use rusqlite::Row;
 
@@ -48,7 +48,7 @@ impl<'a> EagerDBConnection<'a> {
     self
       .conn
       .as_ref()
-      .ok_or_else(|| anyhow!("Attempted to use database before connecting."))
+      .ok_or_else(|| eyre!("Attempted to use database before connecting."))
   }
 
   /// Executes a query that returns multiple rows and returns

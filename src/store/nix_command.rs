@@ -40,9 +40,12 @@ impl Display for CommandBackend {
 fn nix_command_query<'a>(
   args: &'a [&'a str],
 ) -> Result<Box<dyn Iterator<Item = StorePath>>> {
+  let command_str = format!("nix-store {}", args.join(" "));
+  tracing::debug!(command = %command_str, "executing nix command");
   let references = Command::new("nix-store").args(args).output();
 
   let query = references?;
+  tracing::trace!(command = %command_str, "nix command executed successfully");
   // We just collect into a vec, as this method of
   // querying data is slow anyways
   let mut paths = Vec::new();

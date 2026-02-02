@@ -17,6 +17,7 @@ use crate::{
 };
 
 pub(crate) fn default_sqlite_connection(path: &str) -> Result<Connection> {
+  tracing::debug!(database_path = path, "opening sqlite connection");
   let inner = rusqlite::Connection::open_with_flags(
     path,
     OpenFlags::SQLITE_OPEN_READ_ONLY // We only run queries, safeguard against corrupting the DB.
@@ -24,6 +25,10 @@ pub(crate) fn default_sqlite_connection(path: &str) -> Result<Connection> {
       | OpenFlags::SQLITE_OPEN_URI,
   )
   .with_context(|| format!("failed to connect to Nix database at {}", path))?;
+  tracing::debug!(
+    database_path = path,
+    "sqlite connection opened successfully"
+  );
 
   // Perform a batched query to set some settings using PRAGMA
   // the main performance bottleneck when dix was run before
@@ -82,6 +87,7 @@ pub(crate) fn query_closure_size(
   conn: &Connection,
   path: &Path,
 ) -> Result<Size> {
+  tracing::trace!(path = %path.display(), "querying closure size");
   let path = path_to_canonical_string(path)?;
 
   let closure_size = conn

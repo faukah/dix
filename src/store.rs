@@ -157,9 +157,15 @@ impl<'a> Default for CombinedStoreBackend<'a> {
 impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
   /// connects to all backends. Returns an error if all backends fail
   fn connect(&mut self) -> Result<()> {
+    tracing::debug!(
+      backend_count = self.backends.len(),
+      "connecting to store backends"
+    );
     let mut combined_err: Option<eyre::Report> = None;
+    let mut connected_count = 0;
     // connect, collecting the errors as we go
     for (i, backend) in self.backends.iter_mut().enumerate() {
+      tracing::trace!(backend_index = i, backend = %backend, "attempting to connect to backend");
       if let Err(err) = backend.connect() {
         warn!(
           "Unable to connect to store backend {i}: {backend}, trying next. \
@@ -169,8 +175,16 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
           Some(combined) => Some(combined.wrap_err(err.to_string())),
           None => Some(err),
         }
+      } else {
+        connected_count += 1;
+        tracing::debug!(backend_index = i, backend = %backend, "backend connected successfully");
       }
     }
+    tracing::info!(
+      connected_count = connected_count,
+      total_count = self.backends.len(),
+      "backend connection complete"
+    );
     let any_succeeded = self.backends.iter().any(|f| f.connected());
     // warn about encountered errors, even though there are fallbacks
     if let Some(err) = &combined_err

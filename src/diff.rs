@@ -202,19 +202,28 @@ pub fn write_package_diff(
   path_new: &Path,
   force_correctness: bool,
 ) -> Result<usize> {
+  tracing::debug!(
+    old_path = %path_old.display(),
+    new_path = %path_new.display(),
+    force_correctness = force_correctness,
+    "starting package diff computation"
+  );
   let mut connection = create_backend(force_correctness);
   connection.connect()?;
 
+  tracing::debug!("querying dependencies for old path");
   // Query dependencies for old path
   let paths_old = connection.query_dependents(path_old).with_context(|| {
     format!("failed to query dependencies of '{}'", path_old.display())
   })?;
 
+  tracing::debug!("querying dependencies for new path");
   // Query dependencies for new path
   let paths_new = connection.query_dependents(path_new).with_context(|| {
     format!("failed to query dependencies of '{}'", path_new.display())
   })?;
 
+  tracing::debug!("querying system derivations for old path");
   // Query system derivations for old path
   let system_derivations_old = connection
     .query_system_derivations(path_old)
@@ -225,6 +234,7 @@ pub fn write_package_diff(
       )
     })?;
 
+  tracing::debug!("querying system derivations for new path");
   // Query system derivations for new path
   let system_derivations_new = connection
     .query_system_derivations(path_new)
@@ -238,14 +248,18 @@ pub fn write_package_diff(
   writeln!(writer)?;
 
   // Generate and write the diff
-  write_packages_diffln(
+  tracing::debug!("generating and writing package diff");
+  let count = write_packages_diffln(
     writer,
     paths_old,
     paths_new,
     system_derivations_old,
     system_derivations_new,
   )
-  .map_err(Error::from)
+  .map_err(Error::from);
+
+  tracing::info!(diff_count = ?count.as_ref().ok(), "package diff complete");
+  count
 }
 
 /// Writes a package diff between two paths to the provided writer.
@@ -443,9 +457,13 @@ fn collect_paths(
   HashSet<String>,
 ) {
   let mut paths: HashMap<String, (Vec<Version>, Vec<Version>)> = HashMap::new();
+  let mut old_count = 0usize;
+  let mut new_count = 0usize;
 
   for path in old {
+    old_count += 1;
     if let Ok((name, version)) = path.parse_name_and_version() {
+      tracing::trace!(name = name, version = ?version, "collected old path");
       paths
         .entry(name.into())
         .or_default()
@@ -455,7 +473,9 @@ fn collect_paths(
   }
 
   for path in new {
+    new_count += 1;
     if let Ok((name, version)) = path.parse_name_and_version() {
+      tracing::trace!(name = name, version = ?version, "collected new path");
       paths
         .entry(name.into())
         .or_default()
@@ -463,6 +483,13 @@ fn collect_paths(
         .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
     }
   }
+
+  tracing::debug!(
+    old_count = old_count,
+    new_count = new_count,
+    unique_packages = paths.len(),
+    "collected paths"
+  );
 
   let sys_old_set: HashSet<String> = sys_old
     .filter_map(|p| p.parse_name_and_version().ok().map(|(n, _)| n.into()))

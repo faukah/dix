@@ -1,4 +1,4 @@
-pub(crate) const QUERY_DEPENDENTS: &str = "
+pub const QUERY_DEPENDENTS: &str = "
       WITH RECURSIVE
         graph(p) AS (
           SELECT id
@@ -11,7 +11,7 @@ pub(crate) const QUERY_DEPENDENTS: &str = "
       SELECT path from graph
       JOIN ValidPaths ON id = p;
     ";
-pub(crate) const QUERY_SYSTEM_DERIVATIONS: &str = "
+pub const QUERY_SYSTEM_DERIVATIONS: &str = "
       WITH
         systemderiv AS (
           SELECT id FROM ValidPaths
@@ -31,7 +31,7 @@ pub(crate) const QUERY_SYSTEM_DERIVATIONS: &str = "
       JOIN ValidPaths vp ON vp.id = pkgs.id;
     ";
 
-pub(crate) const QUERY_CLOSURE_SIZE: &str = "
+pub const QUERY_CLOSURE_SIZE: &str = "
   WITH RECURSIVE
     graph(p) AS (
       SELECT id

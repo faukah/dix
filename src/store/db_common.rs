@@ -16,7 +16,7 @@ use crate::{
   store::queries,
 };
 
-pub(crate) fn default_sqlite_connection(path: &str) -> Result<Connection> {
+pub fn default_sqlite_connection(path: &str) -> Result<Connection> {
   tracing::debug!(database_path = path, "opening sqlite connection");
   let inner = rusqlite::Connection::open_with_flags(
     path,
@@ -24,7 +24,7 @@ pub(crate) fn default_sqlite_connection(path: &str) -> Result<Connection> {
       | OpenFlags::SQLITE_OPEN_NO_MUTEX // Part of the default flags, rusqlite takes care of locking anyways.
       | OpenFlags::SQLITE_OPEN_URI,
   )
-  .with_context(|| format!("failed to connect to Nix database at {}", path))?;
+  .with_context(|| format!("failed to connect to Nix database at {path}"))?;
   tracing::debug!(
     database_path = path,
     "sqlite connection opened successfully"
@@ -64,13 +64,13 @@ pub(crate) fn default_sqlite_connection(path: &str) -> Result<Connection> {
         PRAGMA query_only;
       ",
     )
-    .with_context(|| format!("failed to cache Nix database at {}", path))?;
+    .with_context(|| format!("failed to cache Nix database at {path}"))?;
   Ok(inner)
 }
 
 // FIXME: why is this marked as dead code? It is used by both the lazy
 // and eager backend implementation
-pub(crate) fn default_close_inner_connection(
+pub fn default_close_inner_connection(
   path: &str,
   maybe_conn: &mut Option<Connection>,
 ) -> Result<()> {
@@ -83,10 +83,7 @@ pub(crate) fn default_close_inner_connection(
   })
 }
 
-pub(crate) fn query_closure_size(
-  conn: &Connection,
-  path: &Path,
-) -> Result<Size> {
+pub fn query_closure_size(conn: &Connection, path: &Path) -> Result<Size> {
   tracing::trace!(path = %path.display(), "querying closure size");
   let path = path_to_canonical_string(path)?;
 

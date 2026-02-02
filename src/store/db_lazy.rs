@@ -144,7 +144,7 @@ where
 /// If any errors occur in rows after the first one, these errors **will not**
 /// be visible and the errors will be lost.
 ///
-/// You may consider using an [crate::store::EagerDBConnection] instead.
+/// You may consider using an [`crate::store::EagerDBConnection`] instead.
 #[derive(Debug)]
 pub struct LazyDBConnection<'a> {
   path: &'a str,
@@ -159,7 +159,7 @@ impl Display for LazyDBConnection<'_> {
 
 impl<'a> LazyDBConnection<'a> {
   /// Create a new connection.
-  pub fn new(path: &'a str) -> LazyDBConnection<'a> {
+  pub const fn new(path: &'a str) -> Self {
     LazyDBConnection { path, conn: None }
   }
   /// returns a reference to the inner connection
@@ -205,12 +205,12 @@ impl Drop for LazyDBConnection<'_> {
       warn!(
         "Tried closing database on drop but encountered error: {:?}",
         err
-      )
+      );
     }
   }
 }
 
-impl<'a> StoreBackend<'a> for LazyDBConnection<'_> {
+impl StoreBackend<'_> for LazyDBConnection<'_> {
   fn connected(&self) -> bool {
     self.conn.is_some()
   }

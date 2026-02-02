@@ -363,7 +363,7 @@ pub fn match_version_lists<'a>(
       distances[(i, j)] =
         i32::try_from(levenshtein(&from_components[i], &to_components[j]))
           .unwrap_or_else(|err| {
-            log::warn!("Distance must fit in i32: {err}");
+            tracing::warn!("Distance must fit in i32: {err}");
             i32::MAX
           });
     }
@@ -844,7 +844,7 @@ pub fn spawn_size_diff(
   path_new: PathBuf,
   force_correctness: bool,
 ) -> thread::JoinHandle<Result<(Size, Size)>> {
-  log::debug!("calculating closure sizes in background");
+  tracing::debug!("calculating closure sizes in background");
 
   thread::spawn(move || {
     let mut connection = create_backend(force_correctness);

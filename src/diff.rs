@@ -33,6 +33,7 @@ use pathfinding::{
   kuhn_munkres,
   matrix::Matrix,
 };
+#[cfg(feature = "json")] use serde::Serialize;
 use size::Size;
 use unicode_width::UnicodeWidthStr as _;
 use yansi::{
@@ -53,7 +54,7 @@ use crate::{
   },
 };
 
-fn create_backend<'a>(
+pub(crate) fn create_backend<'a>(
   force_correctness: bool,
 ) -> store::CombinedStoreBackend<'a> {
   if force_correctness {
@@ -64,6 +65,7 @@ fn create_backend<'a>(
 }
 
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub struct Diff<T = Vec<Version>> {
   pub name:                String,
   pub old:                 T,
@@ -90,6 +92,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub enum Change {
   UpgradeDowngrade,
   Upgraded,
@@ -97,6 +100,7 @@ pub enum Change {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub enum DiffStatus {
   Changed(Change),
   Added,
@@ -146,6 +150,7 @@ impl cmp::Ord for DiffStatus {
 /// Documents if the derivation is a system package and if
 /// it was added / removed as such.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(Serialize))]
 pub enum DerivationSelectionStatus {
   /// The derivation is a system package, status unchanged.
   Selected,
@@ -522,7 +527,7 @@ pub fn write_packages_diffln(
 ///
 /// Takes an iterator of store paths and extracts the package names,
 /// filtering out any that cannot be parsed. Logs warnings for parse failures.
-fn collect_system_names(
+pub(crate) fn collect_system_names(
   paths: impl Iterator<Item = StorePath>,
   context: &str,
 ) -> HashSet<String> {
@@ -544,7 +549,7 @@ fn collect_system_names(
 /// Creates a mapping from package names to their versions in old and new paths.
 /// For each package, stores a tuple of (`old_versions`, `new_versions`).
 /// Handles parsing errors by logging warnings and skipping problematic entries.
-fn collect_path_versions(
+pub(crate) fn collect_path_versions(
   old: impl Iterator<Item = StorePath>,
   new: impl Iterator<Item = StorePath>,
 ) -> HashMap<String, (Vec<Version>, Vec<Version>)> {

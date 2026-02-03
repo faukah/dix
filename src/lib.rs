@@ -15,6 +15,8 @@ use anyhow::{
 };
 use derive_more::Deref;
 
+#[cfg(feature = "json")] pub mod json;
+
 pub mod diff;
 #[expect(deprecated)]
 pub use diff::{
@@ -29,7 +31,7 @@ pub use diff::{
   write_size_diffln,
 };
 
-mod store;
+pub mod store;
 
 pub mod version;
 use version::Version;

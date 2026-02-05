@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use anyhow::{
+use eyre::{
   Context as _,
   Result,
-  anyhow,
+  eyre,
 };
 use rusqlite::{
   Connection,
@@ -16,14 +16,19 @@ use crate::{
   store::queries,
 };
 
-pub(crate) fn default_sqlite_connection(path: &str) -> Result<Connection> {
+pub fn default_sqlite_connection(path: &str) -> Result<Connection> {
+  tracing::debug!(database_path = path, "opening sqlite connection");
   let inner = rusqlite::Connection::open_with_flags(
     path,
     OpenFlags::SQLITE_OPEN_READ_ONLY // We only run queries, safeguard against corrupting the DB.
       | OpenFlags::SQLITE_OPEN_NO_MUTEX // Part of the default flags, rusqlite takes care of locking anyways.
       | OpenFlags::SQLITE_OPEN_URI,
   )
-  .with_context(|| format!("failed to connect to Nix database at {}", path))?;
+  .with_context(|| format!("failed to connect to Nix database at {path}"))?;
+  tracing::debug!(
+    database_path = path,
+    "sqlite connection opened successfully"
+  );
 
   // Perform a batched query to set some settings using PRAGMA
   // the main performance bottleneck when dix was run before
@@ -59,29 +64,27 @@ pub(crate) fn default_sqlite_connection(path: &str) -> Result<Connection> {
         PRAGMA query_only;
       ",
     )
-    .with_context(|| format!("failed to cache Nix database at {}", path))?;
+    .with_context(|| format!("failed to cache Nix database at {path}"))?;
   Ok(inner)
 }
 
 // FIXME: why is this marked as dead code? It is used by both the lazy
 // and eager backend implementation
-pub(crate) fn default_close_inner_connection(
+pub fn default_close_inner_connection(
   path: &str,
   maybe_conn: &mut Option<Connection>,
 ) -> Result<()> {
   let conn = maybe_conn.take().ok_or_else(|| {
-    anyhow!("Tried to close connection to {} that does not exist", path)
+    eyre!("Tried to close connection to {} that does not exist", path)
   })?;
   conn.close().map_err(|(conn_old, err)| {
     *maybe_conn = Some(conn_old);
-    anyhow::Error::from(err).context("failed to close Nix database")
+    eyre::Report::from(err).wrap_err("failed to close Nix database")
   })
 }
 
-pub(crate) fn query_closure_size(
-  conn: &Connection,
-  path: &Path,
-) -> Result<Size> {
+pub fn query_closure_size(conn: &Connection, path: &Path) -> Result<Size> {
+  tracing::trace!(path = %path.display(), "querying closure size");
   let path = path_to_canonical_string(path)?;
 
   let closure_size = conn

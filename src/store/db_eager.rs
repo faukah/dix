@@ -6,9 +6,9 @@ use std::{
   path::Path,
 };
 
-use anyhow::{
+use eyre::{
   Result,
-  anyhow,
+  eyre,
 };
 use rusqlite::Row;
 
@@ -38,7 +38,7 @@ impl Display for EagerDBConnection<'_> {
 
 impl<'a> EagerDBConnection<'a> {
   /// Create a new connection.
-  pub fn new(path: &'a str) -> EagerDBConnection<'a> {
+  pub const fn new(path: &'a str) -> Self {
     EagerDBConnection { path, conn: None }
   }
   /// returns a reference to the inner connection
@@ -48,7 +48,7 @@ impl<'a> EagerDBConnection<'a> {
     self
       .conn
       .as_ref()
-      .ok_or_else(|| anyhow!("Attempted to use database before connecting."))
+      .ok_or_else(|| eyre!("Attempted to use database before connecting."))
   }
 
   /// Executes a query that returns multiple rows and returns
@@ -78,7 +78,7 @@ impl<'a> EagerDBConnection<'a> {
   }
 }
 
-impl<'a> StoreBackend<'a> for EagerDBConnection<'_> {
+impl StoreBackend<'_> for EagerDBConnection<'_> {
   fn connect(&mut self) -> Result<()> {
     self.conn = Some(db_common::default_sqlite_connection(self.path)?);
     Ok(())

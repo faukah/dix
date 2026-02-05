@@ -1,12 +1,14 @@
 #![allow(clippy::mem_forget)]
 //! Provides an interface for querying data from the nix store.
 //!
-//! - [LazyDBConnection] is a lazy connection the underlying sqlite database.
+//! - [`LazyDBConnection`] is a lazy connection the underlying sqlite database.
 mod db_common;
 mod db_eager;
 mod db_lazy;
 mod nix_command;
 mod queries;
+
+#[cfg(test)] mod test_utils;
 
 pub mod store {
   pub use crate::store::db_lazy::LazyDBConnection;
@@ -18,12 +20,12 @@ use std::{
   path::Path,
 };
 
-use anyhow::{
+use eyre::{
   Result,
-  anyhow,
+  eyre,
 };
-use log::warn;
 use size::Size;
+use tracing::warn;
 
 use crate::{
   StorePath,
@@ -100,7 +102,7 @@ impl<'a> CombinedStoreBackend<'a> {
   /// Returns a backend that is focused solely on absolutely guaranteeing
   /// correct results at the cost of memory usage and database speed.
   ///
-  /// Note that [DATABASE_PATH_IMMUTABLE] is not used here, since opening
+  /// Note that [`DATABASE_PATH_IMMUTABLE`] is not used here, since opening
   /// the database can lead to undefined results (also silently with no errors)
   /// if the database is actually modified while opened.
   pub fn default_eager() -> Self {
@@ -116,7 +118,7 @@ impl<'a> CombinedStoreBackend<'a> {
   where
     F: Fn(&'b Box<dyn StoreBackendPrintable<'a>>, &Path) -> Result<Ret>,
   {
-    let mut combined_err: Option<anyhow::Error> = None;
+    let mut combined_err: Option<eyre::Report> = None;
     // attempt to cycle through backends until a successful query is made
     for (i, backend) in self.backends.iter().enumerate() {
       if !backend.connected() {
@@ -135,18 +137,18 @@ impl<'a> CombinedStoreBackend<'a> {
             &err
           );
           combined_err = match combined_err {
-            Some(combined) => Some(combined.context(err)),
+            Some(combined) => Some(combined.wrap_err(err.to_string())),
             None => Some(err),
           };
         },
       }
     }
     warn!("All store backends for path {path:?} failed");
-    Err(combined_err.unwrap_or_else(|| anyhow!("No internal stores to query.")))
+    Err(combined_err.unwrap_or_else(|| eyre!("No internal stores to query.")))
   }
 }
 
-impl<'a> Default for CombinedStoreBackend<'a> {
+impl Default for CombinedStoreBackend<'_> {
   fn default() -> Self {
     Self::default_lazy()
   }
@@ -155,33 +157,47 @@ impl<'a> Default for CombinedStoreBackend<'a> {
 impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
   /// connects to all backends. Returns an error if all backends fail
   fn connect(&mut self) -> Result<()> {
-    let mut combined_err: Option<anyhow::Error> = None;
+    tracing::debug!(
+      backend_count = self.backends.len(),
+      "connecting to store backends"
+    );
+    let mut combined_err: Option<eyre::Report> = None;
+    let mut connected_count = 0;
     // connect, collecting the errors as we go
     for (i, backend) in self.backends.iter_mut().enumerate() {
+      tracing::trace!(backend_index = i, backend = %backend, "attempting to connect to backend");
       if let Err(err) = backend.connect() {
         warn!(
           "Unable to connect to store backend {i}: {backend}, trying next. \
            (error: {err})"
         );
         combined_err = match combined_err {
-          Some(combined) => Some(combined.context(err)),
+          Some(combined) => Some(combined.wrap_err(err.to_string())),
           None => Some(err),
         }
+      } else {
+        connected_count += 1;
+        tracing::debug!(backend_index = i, backend = %backend, "backend connected successfully");
       }
     }
+    tracing::info!(
+      connected_count = connected_count,
+      total_count = self.backends.len(),
+      "backend connection complete"
+    );
     let any_succeeded = self.backends.iter().any(|f| f.connected());
     // warn about encountered errors, even though there are fallbacks
     if let Some(err) = &combined_err
       && any_succeeded
     {
-      warn!("Some backends failed to connect: {err}")
+      warn!("Some backends failed to connect: {err}");
     }
     if any_succeeded {
       Ok(())
     } else {
       combined_err =
-        combined_err.map(|err| err.context("All backends failed to connect."));
-      Err(combined_err.unwrap_or_else(|| anyhow!("No backends to connect to.")))
+        combined_err.map(|err| err.wrap_err("All backends failed to connect."));
+      Err(combined_err.unwrap_or_else(|| eyre!("No backends to connect to.")))
     }
   }
 
@@ -194,23 +210,22 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
   ///
   /// If some fail to close, the combined error is returned.
   fn close(&mut self) -> Result<()> {
-    let mut combined_err: Option<anyhow::Error> = None;
+    let mut combined_err: Option<eyre::Report> = None;
     for (i, backend) in self.backends.iter_mut().enumerate() {
-      if backend.connected() {
-        if let Err(err) = backend.close() {
-          warn!("Unable to close store backend {i}: {backend}. (error: {err})");
-          combined_err = match combined_err {
-            Some(combined) => Some(combined.context(err)),
-            None => Some(err),
-          };
-        }
+      if backend.connected()
+        && let Err(err) = backend.close()
+      {
+        warn!("Unable to close store backend {i}: {backend}. (error: {err})");
+        combined_err = match combined_err {
+          Some(combined) => Some(combined.wrap_err(err.to_string())),
+          None => Some(err),
+        };
       }
     }
-    if let Some(err) = combined_err {
-      Err(err.context("One or more backends failed to close."))
-    } else {
-      Ok(())
-    }
+    combined_err.map_or_else(
+      || Ok(()),
+      |err| Err(err.wrap_err("One or more backends failed to close.")),
+    )
   }
 
   fn query_closure_size(&self, path: &Path) -> Result<Size> {
@@ -274,10 +289,10 @@ mod test {
     }
   }
 
-  impl<'a> StoreBackend<'a> for MockStoreBackend {
+  impl StoreBackend<'_> for MockStoreBackend {
     fn connect(&mut self) -> Result<()> {
       if self.fail_connect {
-        Err(anyhow!("Connection failed"))
+        Err(eyre!("Connection failed"))
       } else {
         self.connected = true;
         Ok(())
@@ -296,7 +311,7 @@ mod test {
     fn query_closure_size(&self, _path: &Path) -> Result<Size> {
       *self.query_called.borrow_mut() = true;
       if self.fail_query {
-        Err(anyhow!("Query failed"))
+        Err(eyre!("Query failed"))
       } else {
         Ok(Size::from_bytes(100))
       }

@@ -6,27 +6,24 @@ use std::{
   sync,
 };
 
-use anyhow::{
+use derive_more::Deref;
+use eyre::{
   Context as _,
+  ContextCompat as _,
   Error,
   Result,
-  anyhow,
   bail,
+  eyre,
 };
-use derive_more::Deref;
 
 pub mod diff;
-#[expect(deprecated)]
 pub use diff::{
   generate_diffs_from_paths,
-  levenshtein,
   match_version_lists,
   spawn_size_diff,
   write_package_diff,
-  // Keep old functions for backward compatibility
-  write_paths_diffln,
+  write_packages_diff,
   write_size_diff,
-  write_size_diffln,
 };
 
 mod store;
@@ -44,13 +41,15 @@ impl TryFrom<PathBuf> for StorePath {
   type Error = Error;
 
   fn try_from(path: PathBuf) -> Result<Self> {
+    tracing::trace!(path = %path.display(), "validating store path");
     if !path.starts_with("/nix/store") {
+      tracing::warn!(path = %path.display(), "path does not start with /nix/store");
       bail!(
         "path {path} must start with /nix/store",
         path = path.display(),
       );
     }
-
+    tracing::trace!(path = %path.display(), "store path validated");
     Ok(Self(path))
   }
 }
@@ -85,10 +84,10 @@ impl StorePath {
     assert_eq!(&path[43..44], "-");
     let path = &path[44..];
 
-    log::trace!("stripped path: {path}");
+    tracing::trace!("stripped path: {path}");
 
     let captures = STORE_PATH_REGEX.captures(path).ok_or_else(|| {
-      anyhow!("path '{path}' does not match expected Nix store format")
+      eyre!("path '{path}' does not match expected Nix store format")
     })?;
 
     let name = captures.get(1).map_or("", |capture| capture.as_str());
@@ -99,6 +98,8 @@ impl StorePath {
     let version: Option<Version> = captures.get(2).map(|capture| {
       Version::from(capture.as_str().trim_start_matches('-').to_owned())
     });
+
+    tracing::trace!(name = name, version = ?version, "parsed name and version from path");
 
     Ok((name, version))
   }
@@ -113,7 +114,8 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
   })?;
 
   let path = path.into_os_string().into_string().map_err(|path| {
-    anyhow!(
+    tracing::debug!("path contains invalid unicode characters");
+    eyre!(
       "failed to convert path '{path}' to valid unicode",
       path = Path::new(&*path).display(), /* TODO: use .display() directly
                                            * after Rust 1.87.0 in flake. */

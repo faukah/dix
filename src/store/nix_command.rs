@@ -14,6 +14,7 @@ use anyhow::{
   Context,
   Result,
   anyhow,
+  bail,
 };
 use size::Size;
 

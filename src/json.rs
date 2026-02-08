@@ -65,7 +65,7 @@ pub fn display_diff(
   let size_old = connection.query_closure_size(path_old)?.bytes();
   let size_new = connection.query_closure_size(path_new)?.bytes();
 
-  let json = report_to_json(JsonReport {
+  let json = serde_json::to_string(&JsonReport {
     diffs,
     size_old,
     size_new,
@@ -82,8 +82,4 @@ pub struct JsonReport {
   size_old: i64,
   /// new closure size (in bytes)
   size_new: i64,
-}
-
-pub fn report_to_json(diffs: JsonReport) -> Result<String> {
-  serde_json::to_string(&diffs).map_err(|e| e.into())
 }

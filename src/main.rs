@@ -54,11 +54,18 @@ struct Cli {
   #[arg(long, default_value_t = false, global = true)]
   force_correctness: bool,
 
-  /// Outputs the diff in JSON format instead of the normal, human-readable diff.
-  ///
-  /// Requires the "json" feature.
-  #[arg(long, default_value_t = false, global = true)]
-  json_output: bool,
+  /// Select the output format to use.
+  #[arg(long, value_enum, default_value_t = OutputFormat::Human, global = true)]
+  output: OutputFormat,
+}
+
+/// Determines the output format to be used by dix.
+#[derive(Debug, Clone, clap::ValueEnum, Eq, PartialEq)]
+enum OutputFormat {
+  /// Output in the default dix format highlighting version changes.
+  Human,
+  /// Display the output as JSON for machine parsing (requires `json` feature).
+  Json,
 }
 
 fn main() -> eyre::Result<()> {
@@ -68,7 +75,7 @@ fn main() -> eyre::Result<()> {
     verbose,
     color,
     force_correctness,
-    json_output,
+    output,
   } = Cli::parse();
 
   tracing::debug!(
@@ -132,28 +139,24 @@ fn main() -> eyre::Result<()> {
     .without_time()
     .init();
 
-  #[cfg(feature = "json")]
-  let json_feature_enabled = true;
-  #[cfg(not(feature = "json"))]
-  let json_feature_enabled = false;
-
-  if !json_feature_enabled && json_output {
-    return Err(eyre!(
-      "The 'json' feature is required to use '--json-output'."
-    ));
-  }
-
   if force_correctness {
     tracing::warn!(
       "Falling back to slower but more robust backends (force_correctness is \
        set)."
     );
   }
-  if json_output {
+  match output {
+    OutputFormat::Human => {
+      display_diff(&old_path, &new_path, force_correctness)?;
+    },
     #[cfg(feature = "json")]
-    json::display_diff(&old_path, &new_path, force_correctness)?;
-  } else {
-    display_diff(&old_path, &new_path, force_correctness)?;
+    OutputFormat::Json => {
+      json::display_diff(&old_path, &new_path, force_correctness)?;
+    },
+    #[cfg(not(feature = "json"))]
+    OutputFormat::Json => {
+      anyhow::bail!("The 'json' feature is required to use '--json-output'.");
+    },
   }
 
   Ok(())

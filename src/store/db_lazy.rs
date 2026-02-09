@@ -160,7 +160,7 @@ impl Display for LazyDBConnection<'_> {
 impl<'a> LazyDBConnection<'a> {
   /// Create a new connection.
   pub const fn new(path: &'a str) -> Self {
-    LazyDBConnection { path, conn: None }
+    Self { path, conn: None }
   }
   /// returns a reference to the inner connection
   ///

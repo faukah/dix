@@ -414,8 +414,15 @@ pub fn write_packages_diff(
   system_paths_old: impl Iterator<Item = StorePath>,
   system_paths_new: impl Iterator<Item = StorePath>,
 ) -> Result<usize, fmt::Error> {
-  let (paths_map, sys_old_set, sys_new_set) =
-    collect_paths(paths_old, paths_new, system_paths_old, system_paths_new);
+  let paths_map = collect_paths(paths_old, paths_new);
+
+  let sys_old_set: HashSet<String> = system_paths_old
+    .filter_map(|p| p.parse_name_and_version().ok().map(|(n, _)| n.into()))
+    .collect();
+
+  let sys_new_set: HashSet<String> = system_paths_new
+    .filter_map(|p| p.parse_name_and_version().ok().map(|(n, _)| n.into()))
+    .collect();
 
   let mut diffs = generate_diffs_from_paths(paths_map);
   add_selection_status(&mut diffs, &sys_old_set, &sys_new_set);
@@ -430,13 +437,7 @@ pub fn write_packages_diff(
 fn collect_paths(
   old: impl Iterator<Item = StorePath>,
   new: impl Iterator<Item = StorePath>,
-  sys_old: impl Iterator<Item = StorePath>,
-  sys_new: impl Iterator<Item = StorePath>,
-) -> (
-  HashMap<String, (Vec<Version>, Vec<Version>)>,
-  HashSet<String>,
-  HashSet<String>,
-) {
+) -> HashMap<String, (Vec<Version>, Vec<Version>)> {
   let mut paths: HashMap<String, (Vec<Version>, Vec<Version>)> = HashMap::new();
   let mut old_count = 0usize;
   let mut new_count = 0usize;
@@ -450,6 +451,11 @@ fn collect_paths(
         .or_default()
         .0
         .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
+    } else {
+      tracing::warn!(
+        path = %path.display(),
+        "failed to parse name and version from old path"
+      );
     }
   }
 
@@ -462,6 +468,11 @@ fn collect_paths(
         .or_default()
         .1
         .push(version.unwrap_or_else(|| Version::from("<none>".to_owned())));
+    } else {
+      tracing::warn!(
+        path = %path.display(),
+        "failed to parse name and version from new path"
+      );
     }
   }
 
@@ -472,15 +483,7 @@ fn collect_paths(
     "collected paths"
   );
 
-  let sys_old_set: HashSet<String> = sys_old
-    .filter_map(|p| p.parse_name_and_version().ok().map(|(n, _)| n.into()))
-    .collect();
-
-  let sys_new_set: HashSet<String> = sys_new
-    .filter_map(|p| p.parse_name_and_version().ok().map(|(n, _)| n.into()))
-    .collect();
-
-  (paths, sys_old_set, sys_new_set)
+  paths
 }
 
 /// Renders a collection of diffs to the writer
@@ -1070,12 +1073,8 @@ fn levenshtein_distance_tests() {
 
 #[test]
 fn match_version_lists_test() {
-  let version_list_a = [
-    Version::new("5.116.0"),
-    Version::new("5.116.0-bin"),
-    Version::new("6.16.0"),
-  ];
-  let version_list_b = [Version::new("6.17.0")];
+  let version_list_a = [Version::new("6.16.0"), Version::new("5.116.0")];
+  let version_list_b = [Version::new("6.17.0"), Version::new("5.116.0-bin")];
 
   let matched = match_version_lists(&version_list_a, &version_list_b);
 
@@ -1084,12 +1083,21 @@ fn match_version_lists_test() {
     match version {
       itertools::EitherOrBoth::Both(left, right) => {
         println!("{left} {right}");
+        assert!(
+          left == &Version::new("6.16.0") || left == &Version::new("5.116.0")
+        );
+        assert!(
+          right == &Version::new("6.17.0")
+            || right == &Version::new("5.116.0-bin")
+        );
       },
       itertools::EitherOrBoth::Left(left) => {
         println!("{left}");
+        assert!(left == &Version::new("5.116.0-bin"))
       },
       itertools::EitherOrBoth::Right(right) => {
         println!("{right}");
+        assert!(right == &Version::new("5.116.0"))
       },
     }
   }

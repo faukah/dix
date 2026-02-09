@@ -179,11 +179,7 @@ impl VersionComponent<'_> {
 
   #[must_use]
   pub fn as_u64(&self) -> Option<u64> {
-    if self.is_numeric() {
-      self.0.parse().ok()
-    } else {
-      None
-    }
+    self.is_numeric().then(|| self.0.parse().ok()).flatten()
   }
 }
 

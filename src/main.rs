@@ -161,10 +161,7 @@ fn main() -> eyre::Result<()> {
   tracing::debug!("waiting for closure size thread to complete");
   let (size_old, size_new) = closure_size_handle.join().map_err(|_| {
     tracing::error!("closure size thread panicked");
-    eyre!(
-      "failed to get closure size due to thread
-  error"
-    )
+    eyre!("failed to get closure size due to thread error")
   })??;
 
   tracing::info!(size_old = %size_old, size_new = %size_new, "closure sizes computed");

@@ -137,7 +137,7 @@ impl<'a> CombinedStoreBackend<'a> {
             &err
           );
           combined_err = match combined_err {
-            Some(combined) => Some(combined.wrap_err(err.to_string())),
+            Some(combined) => Some(combined.wrap_err(err)),
             None => Some(err),
           };
         },
@@ -172,7 +172,7 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
            (error: {err})"
         );
         combined_err = match combined_err {
-          Some(combined) => Some(combined.wrap_err(err.to_string())),
+          Some(combined) => Some(combined.wrap_err(err)),
           None => Some(err),
         }
       } else {
@@ -217,7 +217,7 @@ impl<'a> StoreBackend<'a> for CombinedStoreBackend<'a> {
       {
         warn!("Unable to close store backend {i}: {backend}. (error: {err})");
         combined_err = match combined_err {
-          Some(combined) => Some(combined.wrap_err(err.to_string())),
+          Some(combined) => Some(combined.wrap_err(err)),
           None => Some(err),
         };
       }

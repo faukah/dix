@@ -13,6 +13,7 @@ use std::{
 use eyre::{
   Context,
   Result,
+  bail,
   eyre,
 };
 use size::Size;
@@ -83,13 +84,15 @@ impl StoreBackend<'_> for CommandBackend {
       .arg(path.join("sw"))
       .output()
       .wrap_err("Encountered error while executing nix command")?;
+
     let text = str::from_utf8(&cmd_res.stdout)?;
+
     if let Some(bytes_text) = text.split_whitespace().last()
       && let Ok(bytes) = bytes_text.parse::<u64>()
     {
       Ok(Size::from_bytes(bytes))
     } else {
-      Err(eyre!("Unable to parse closure size from nix output"))
+      bail!("Unable to parse closure size from nix output")
     }
   }
 

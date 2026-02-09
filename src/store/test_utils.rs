@@ -9,23 +9,11 @@ use std::{
     Path,
     PathBuf,
   },
-  sync::atomic::{
-    AtomicU64,
-    Ordering,
-  },
 };
 
 use eyre::Result;
 use rusqlite::Connection;
 use tempfile::TempDir;
-
-/// Counter for generating unique IDs across tests.
-static TEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-
-/// Creates a new unique ID for test entries.
-pub fn next_test_id() -> u64 {
-  TEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst)
-}
 
 /// Test database builder for creating temporary `SQLite` databases
 /// with the Nix store schema.
@@ -60,23 +48,15 @@ impl TestDbBuilder {
     &self.temp_dir
   }
 
-  /// Returns a connection string suitable for rusqlite.
-  pub fn connection_string(&self) -> String {
-    format!("file:{}", self.db_path.display())
-  }
-
   /// Returns the actual filesystem path for a given fixture path.
   ///
   /// This converts a path like `/nix/store/xxx-name` to the actual
   /// path in the temp directory like `/tmp/.../xxx-name`.
   pub fn resolve_fixture_path(&self, fixture_path: &str) -> PathBuf {
-    let relative_path = if fixture_path.starts_with("/nix/store/") {
-      fixture_path
-        .strip_prefix("/nix/store/")
-        .unwrap_or(fixture_path)
-    } else {
-      fixture_path
-    };
+    let relative_path = fixture_path
+      .strip_prefix("/nix/store/")
+      .unwrap_or(fixture_path);
+
     self.temp_dir.path().join(relative_path)
   }
 
@@ -149,12 +129,7 @@ impl TestDbBuilder {
   /// canonicalized.
   pub fn add_valid_path(&self, path: &str, nar_size: i64) -> Result<i64> {
     // Create the directory on the filesystem so it can be canonicalized
-    let relative_path = if path.starts_with("/nix/store/") {
-      path.strip_prefix("/nix/store/").unwrap_or(path)
-    } else {
-      path
-    };
-    let fs_path = self.temp_dir.path().join(relative_path);
+    let fs_path = self.resolve_fixture_path(path);
     fs::create_dir_all(&fs_path)?;
 
     // Store the actual filesystem path that can be canonicalized
@@ -215,7 +190,7 @@ impl TestDbBuilder {
     &self,
     paths: Vec<(&str, i64)>,
     refs: Vec<(&str, &str)>,
-  ) -> Result<Closure<'_>> {
+  ) -> Result<Closure> {
     let mut path_ids = std::collections::HashMap::new();
 
     // Add all paths
@@ -226,36 +201,30 @@ impl TestDbBuilder {
 
     // Add all references
     for (referrer, reference) in refs {
-      let referrer_id = path_ids
-        .get(referrer)
-        .copied()
-        .unwrap_or_else(|| self.get_path_id(referrer).unwrap());
-      let reference_id = path_ids
-        .get(reference)
-        .copied()
-        .unwrap_or_else(|| self.get_path_id(reference).unwrap());
+      let referrer_id = *path_ids
+        .entry(referrer.to_string())
+        .or_insert_with(|| self.get_path_id(referrer).unwrap());
+
+      let reference_id = *path_ids
+        .entry(reference.to_string())
+        .or_insert_with(|| self.get_path_id(reference).unwrap());
+
       self.add_reference(referrer_id, reference_id)?;
     }
 
-    Ok(Closure { db: self, path_ids })
+    Ok(Closure { path_ids })
   }
 }
 
 /// Represents a closure of related paths in a test database.
-pub struct Closure<'a> {
-  db:       &'a TestDbBuilder,
+pub struct Closure {
   path_ids: std::collections::HashMap<String, i64>,
 }
 
-impl Closure<'_> {
+impl Closure {
   /// Returns the ID for a path in this closure.
   pub fn get_id(&self, path: &str) -> Option<i64> {
     self.path_ids.get(path).copied()
-  }
-
-  /// Returns the database builder.
-  pub fn db(&self) -> &TestDbBuilder {
-    self.db
   }
 }
 
@@ -804,15 +773,15 @@ pub mod edge_cases {
       return Ok(db);
     }
 
-    let mut prev_path = fixtures::store_path("deep-0");
-    let mut prev_id = db.add_valid_path(&prev_path, 100)?;
+    let mut prev_id =
+      db.add_valid_path(&fixtures::store_path("deep-0"), 100)?;
 
     for i in 1..depth {
       let path = fixtures::store_path(&format!("deep-{i}"));
       let id = db.add_valid_path(&path, 100)?;
+
       db.add_reference(prev_id, id)?;
       prev_id = id;
-      prev_path = path;
     }
 
     Ok(db)

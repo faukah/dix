@@ -39,7 +39,7 @@ impl Display for EagerDBConnection<'_> {
 impl<'a> EagerDBConnection<'a> {
   /// Create a new connection.
   pub const fn new(path: &'a str) -> Self {
-    EagerDBConnection { path, conn: None }
+    Self { path, conn: None }
   }
   /// returns a reference to the inner connection
   ///

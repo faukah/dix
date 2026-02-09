@@ -69,14 +69,6 @@ impl TestDbBuilder {
         | rusqlite::OpenFlags::SQLITE_OPEN_URI,
     )?;
 
-    conn.execute_batch(
-      "
-        PRAGMA mmap_size=268435456;
-        PRAGMA temp_store=2;
-        PRAGMA query_only;
-      ",
-    )?;
-
     Ok(conn)
   }
 

@@ -9,14 +9,14 @@ license     = "GPL-3.0-only"
 keywords    = [ "nix", "nixos" ]
 
 [dependencies]
-anyhow              = "1.0.98"
 clap                = { features = [ "derive" ], version = "4.5.37" }
+eyre                = "0.6"
 clap-verbosity-flag = "3.0.2"
 derive_more         = { features = [ "full" ], version = "2.0.1" }
 diff                = "0.1.13"
-env_logger          = "0.11.3"
 itertools           = "0.14.0"
-log                 = "0.4.20"
+tracing             = "0.1"
+tracing-subscriber  = { version = "0.3", features = [ "env-filter" ] }
 ouroboros           = "0.18.5"
 pathfinding         = "4.14.0"
 regex               = "1.11.1"
@@ -26,7 +26,8 @@ unicode-width       = "0.2.0"
 yansi               = { features = [ "detect-env", "detect-tty" ], version = "1.0.1" }
 
 [dev-dependencies]
-proptest = "1.6.0"
+proptest  = "1.6.0"
+tempfile  = "3.10.0"
 
 # See:
 #  <https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html>

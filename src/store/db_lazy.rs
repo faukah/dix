@@ -10,12 +10,11 @@ use std::{
   path::Path,
 };
 
-use anyhow::{
+use eyre::{
   Context,
   Result,
-  anyhow,
+  eyre,
 };
-use log::warn;
 use ouroboros::self_referencing;
 use rusqlite::{
   CachedStatement,
@@ -23,6 +22,7 @@ use rusqlite::{
   Row,
 };
 use size::Size;
+use tracing::warn;
 
 use crate::{
   StorePath,
@@ -102,12 +102,12 @@ where
         Ok(mut iter) => {
           #[expect(clippy::pattern_type_mismatch)]
           if let Some(Err(err)) = iter.peek() {
-            return Err(anyhow!("First row conversion failed: {err:?}"));
+            return Err(eyre!("First row conversion failed: {err:?}"));
           }
           let iter_filtered = iter.filter_map(
             (|row| {
               if let Err(ref err) = row {
-                log::warn!("Row conversion failed: {err:?}");
+                tracing::warn!("Row conversion failed: {err:?}");
               }
               row.ok()
             }) as FilterOkFunc<T>,
@@ -144,7 +144,7 @@ where
 /// If any errors occur in rows after the first one, these errors **will not**
 /// be visible and the errors will be lost.
 ///
-/// You may consider using an [crate::store::EagerDBConnection] instead.
+/// You may consider using an [`crate::store::EagerDBConnection`] instead.
 #[derive(Debug)]
 pub struct LazyDBConnection<'a> {
   path: &'a str,
@@ -159,8 +159,8 @@ impl Display for LazyDBConnection<'_> {
 
 impl<'a> LazyDBConnection<'a> {
   /// Create a new connection.
-  pub fn new(path: &'a str) -> LazyDBConnection<'a> {
-    LazyDBConnection { path, conn: None }
+  pub const fn new(path: &'a str) -> Self {
+    Self { path, conn: None }
   }
   /// returns a reference to the inner connection
   ///
@@ -169,7 +169,7 @@ impl<'a> LazyDBConnection<'a> {
     self
       .conn
       .as_ref()
-      .ok_or_else(|| anyhow!("Attempted to use database before connecting."))
+      .ok_or_else(|| eyre!("Attempted to use database before connecting."))
   }
   /// Executes a query that returns multiple rows and returns
   /// an iterator over them where the `map` is used to map
@@ -205,12 +205,12 @@ impl Drop for LazyDBConnection<'_> {
       warn!(
         "Tried closing database on drop but encountered error: {:?}",
         err
-      )
+      );
     }
   }
 }
 
-impl<'a> StoreBackend<'a> for LazyDBConnection<'_> {
+impl StoreBackend<'_> for LazyDBConnection<'_> {
   fn connected(&self) -> bool {
     self.conn.is_some()
   }

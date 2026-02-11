@@ -8,17 +8,12 @@ use std::{
   io::{
     self,
     IsTerminal as _,
-    Write as _,
   },
   path::PathBuf,
-  process,
 };
 
-use anyhow::{
-  Result,
-  anyhow,
-};
 use clap::Parser as _;
+use eyre::eyre;
 use yansi::Paint as _;
 
 struct WriteFmt<W: io::Write>(W);
@@ -59,7 +54,7 @@ struct Cli {
   force_correctness: bool,
 }
 
-fn real_main() -> Result<()> {
+fn main() -> eyre::Result<()> {
   let Cli {
     old_path,
     new_path,
@@ -68,34 +63,76 @@ fn real_main() -> Result<()> {
     force_correctness,
   } = Cli::parse();
 
+  tracing::debug!(
+    old_path = %old_path.display(),
+    new_path = %new_path.display(),
+    force_correctness = force_correctness,
+    "starting dix"
+  );
+
+  // Validate that both paths exist before proceeding
+  if !old_path.exists() {
+    tracing::error!(path = %old_path.display(), "old profile path does not exist");
+    return Err(eyre!(
+      "old profile path does not exist: {}",
+      old_path.display()
+    ));
+  }
+  if !new_path.exists() {
+    tracing::error!(path = %new_path.display(), "new profile path does not exist");
+    return Err(eyre!(
+      "new profile path does not exist: {}",
+      new_path.display()
+    ));
+  }
+
+  tracing::info!(old_path = %old_path.display(), new_path = %new_path.display(), "paths validated");
+
   yansi::whenever(match color {
     clap::ColorChoice::Auto => yansi::Condition::from(should_style),
     clap::ColorChoice::Always => yansi::Condition::ALWAYS,
     clap::ColorChoice::Never => yansi::Condition::NEVER,
   });
 
-  env_logger::Builder::new()
-    .filter_level(verbose.log_level_filter())
-    .format(|out, arguments| {
-      let header = match arguments.level() {
-        log::Level::Error => "error:".red(),
-        log::Level::Warn => "warn:".yellow(),
-        log::Level::Info => "info:".green(),
-        log::Level::Debug => "debug:".blue(),
-        log::Level::Trace => "trace:".cyan(),
-      };
-
-      writeln!(out, "{header} {message}", message = arguments.args())
-    })
+  tracing_subscriber::fmt()
+    .with_env_filter(
+      tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(match verbose.log_level_filter() {
+          clap_verbosity_flag::log::LevelFilter::Off => {
+            tracing::Level::ERROR.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Error => {
+            tracing::Level::ERROR.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Warn => {
+            tracing::Level::WARN.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Info => {
+            tracing::Level::INFO.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Debug => {
+            tracing::Level::DEBUG.into()
+          },
+          clap_verbosity_flag::log::LevelFilter::Trace => {
+            tracing::Level::TRACE.into()
+          },
+        })
+        .from_env_lossy(),
+    )
+    .with_ansi(should_style())
+    .with_target(false)
+    .without_time()
     .init();
   if force_correctness {
-    log::warn!(
+    tracing::warn!(
       "Falling back to slower but more robust backends (force_correctness is \
        set)."
     );
   }
 
   let mut out = WriteFmt(io::stdout());
+
+  tracing::info!("starting diff computation");
 
   writeln!(
     out,
@@ -113,18 +150,21 @@ fn real_main() -> Result<()> {
   )?;
 
   // Handle to the thread collecting closure size information.
+  tracing::debug!("spawning closure size computation thread");
   let closure_size_handle =
     dix::spawn_size_diff(old_path.clone(), new_path.clone(), force_correctness);
 
+  tracing::debug!("computing package diff");
   let wrote =
     dix::write_package_diff(&mut out, &old_path, &new_path, force_correctness)?;
 
+  tracing::debug!("waiting for closure size thread to complete");
   let (size_old, size_new) = closure_size_handle.join().map_err(|_| {
-    anyhow!(
-      "failed to get closure size due to thread
-  error"
-    )
+    tracing::error!("closure size thread panicked");
+    eyre!("failed to get closure size due to thread error")
   })??;
+
+  tracing::info!(size_old = %size_old, size_new = %size_new, "closure sizes computed");
 
   if wrote > 0 {
     writeln!(out)?;
@@ -132,57 +172,9 @@ fn real_main() -> Result<()> {
 
   dix::write_size_diff(&mut out, size_old, size_new)?;
 
+  tracing::info!("diff computation complete");
+
   Ok(())
-}
-
-#[allow(clippy::allow_attributes, clippy::exit)]
-fn main() {
-  let Err(error) = real_main() else {
-    return;
-  };
-
-  let mut err = io::stderr();
-
-  let mut message = String::new();
-  let mut chain = error.chain().rev().peekable();
-
-  while let Some(error) = chain.next() {
-    let _ = write!(
-      err,
-      "{header} ",
-      header = if chain.peek().is_none() {
-        "error:"
-      } else {
-        "cause:"
-      }
-      .red()
-      .bold(),
-    );
-
-    String::clear(&mut message);
-    let _ = write!(message, "{error}");
-
-    let mut chars = message.char_indices();
-
-    let _ = match (chars.next(), chars.next()) {
-      (Some((_, first)), Some((second_start, second)))
-        if second.is_lowercase() =>
-      {
-        writeln!(
-          err,
-          "{first_lowercase}{rest}",
-          first_lowercase = first.to_lowercase(),
-          rest = &message[second_start..],
-        )
-      },
-
-      _ => {
-        writeln!(err, "{message}")
-      },
-    };
-  }
-
-  process::exit(1);
 }
 
 // https://bixense.com/clicolors/

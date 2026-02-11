@@ -111,7 +111,7 @@ impl<'a> Pieces<'a> {
   }
 }
 
-#[allow(clippy::copy_iterator)]
+#[expect(clippy::copy_iterator)]
 impl<'a> Iterator for Pieces<'a> {
   type Item = VersionPiece<'a>;
 

@@ -259,6 +259,9 @@ pub fn write_package_diff(
   .map_err(Error::from);
 
   tracing::info!(diff_count = ?count.as_ref().ok(), "package diff complete");
+
+  connection.close()?;
+
   count
 }
 
@@ -861,10 +864,14 @@ pub fn spawn_size_diff(
     let mut connection = create_backend(force_correctness);
     connection.connect()?;
 
-    Ok::<_, Error>((
+    let result = (
       connection.query_closure_size(&path_old)?,
       connection.query_closure_size(&path_new)?,
-    ))
+    );
+
+    connection.close()?;
+
+    Ok::<_, Error>(result)
   })
 }
 

@@ -1,4 +1,3 @@
-#![allow(clippy::mem_forget)]
 //! Provides an interface for querying data from the nix store.
 //!
 //! - [`LazyDBConnection`] is a lazy connection the underlying sqlite database.
@@ -9,10 +8,6 @@ mod nix_command;
 mod queries;
 
 #[cfg(test)] mod test_utils;
-
-pub mod store {
-  pub use crate::store::db_lazy::LazyDBConnection;
-}
 
 use std::{
   fmt::Display,
@@ -31,8 +26,8 @@ use crate::{
   StorePath,
   store::{
     db_eager::EagerDBConnection,
+    db_lazy::LazyDBConnection,
     nix_command::CommandBackend,
-    store::LazyDBConnection,
   },
 };
 /// The normal database connection

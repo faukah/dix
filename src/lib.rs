@@ -66,8 +66,11 @@ impl StorePath {
   fn parse_name_and_version(&self) -> Result<(&str, Option<Version>)> {
     static STORE_PATH_REGEX: sync::LazyLock<regex::Regex> =
       sync::LazyLock::new(|| {
-        regex::Regex::new("(.+?)(-([0-9].*?))?$")
-          .expect("failed to compile regex for Nix store paths")
+        regex::Regex::new(
+          "(?<prefix>(/nix/store/)|(/tmp/.+?/))(?<name>.+?)(-(?<version>[0-9].\
+           *?))?$",
+        )
+        .expect("failed to compile regex for Nix store paths")
       });
 
     let path = self.to_str().with_context(|| {
@@ -77,27 +80,16 @@ impl StorePath {
       )
     })?;
 
-    // We can strip the path since it _always_ follows the format:
-    //
-    // /nix/store/0004yybkm5hnwjyxv129js3mjp7kbrax-...
-    // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    // This part is exactly 44 chars long, so we just remove it.
-    assert_eq!(&path[..11], "/nix/store/");
-    assert_eq!(&path[43..44], "-");
-    let path = &path[44..];
-
-    tracing::trace!("stripped path: {path}");
-
     let captures = STORE_PATH_REGEX.captures(path).ok_or_else(|| {
       eyre!("path '{path}' does not match expected Nix store format")
     })?;
 
-    let name = captures.get(1).map_or("", |capture| capture.as_str());
+    let name = captures.name("name").map_or("", |capture| capture.as_str());
     if name.is_empty() {
       bail!("failed to extract name from path '{path}'");
     }
 
-    let version: Option<Version> = captures.get(2).map(|capture| {
+    let version: Option<Version> = captures.name("version").map(|capture| {
       Version::from(capture.as_str().trim_start_matches('-').to_owned())
     });
 

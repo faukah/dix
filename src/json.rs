@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+  io::Write,
+  path::PathBuf,
+};
 
 use eyre::{
   Result,
@@ -19,6 +22,7 @@ use crate::{
 };
 
 pub fn display_diff(
+  out: &mut dyn Write,
   path_old: &PathBuf,
   path_new: &PathBuf,
   force_correctness: bool,
@@ -65,13 +69,12 @@ pub fn display_diff(
   let size_old = connection.query_closure_size(path_old)?.bytes();
   let size_new = connection.query_closure_size(path_new)?.bytes();
 
-  let json = serde_json::to_string(&JsonReport {
+  serde_json::to_writer(out, &JsonReport {
     diffs,
     size_old,
     size_new,
-  })?;
-  println!("{json}");
-  Ok(())
+  })
+  .context("Failed to write json output.")
 }
 
 #[derive(Serialize)]

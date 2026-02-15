@@ -1,4 +1,4 @@
-// Test utilities and infrastructure for database testing.
+// Test utilities afixture_path) nd infrastructure for database testing.
 //
 // This module provides utilities to create temporary SQLite databases
 // with the Nix store schema for testing purposes.
@@ -38,13 +38,16 @@ impl TestDbBuilder {
 
   /// Returns the actual filesystem path for a given fixture path.
   ///
-  /// Converts a path like `/nix/store/xxx-name` to the actual
-  /// path in the temp directory.
+  /// Converts a path like `/nix/store/xxx-name` to a path under
+  /// `tempdir/nix/store/xxx-name` so that canonicalized paths will
+  /// contain `/nix/store/` in them.
   pub fn resolve_fixture_path(&self, fixture_path: &str) -> PathBuf {
-    let relative_path = fixture_path
-      .strip_prefix("/nix/store/")
-      .unwrap_or(fixture_path);
-    self.temp_dir.path().join(relative_path)
+    // All paths are created under tempdir/nix/store/
+    // so they canonicalize to paths containing /nix/store/
+    self
+      .temp_dir
+      .path()
+      .join(fixture_path.strip_prefix("/").unwrap_or(fixture_path))
   }
 
   /// Opens a read-write connection to the database.
@@ -82,7 +85,29 @@ impl TestDbBuilder {
     Ok(conn.close().map_err(|(_, err)| err)?)
   }
 
+  /// Retrieves the id using a path
+  pub fn get_id(&self, path: &str) -> Option<i64> {
+    let fs_path = self.resolve_fixture_path(path);
+    let canonical_path = fs_path.canonicalize().ok()?;
+    let path_str = canonical_path.to_string_lossy();
+    let conn = self.open().ok()?;
+    let mut stmt = conn
+      .prepare("SELECT id FROM ValidPaths WHERE path = ?1 LIMIT 1")
+      .ok()?;
+
+    let id = stmt
+      .query_row([&path_str], |row| row.get::<_, i64>(0))
+      .ok()?;
+    drop(stmt);
+
+    conn.close().map_err(|(_, err)| err).ok();
+    Some(id)
+  }
+
   /// Adds a valid path to the database, creating the filesystem directory.
+  ///
+  /// Creates the directory under `tempdir/nix/store/` so that canonicalized
+  /// paths contain `/nix/store/`.
   pub fn add_valid_path(&self, path: &str, nar_size: i64) -> Result<i64> {
     let fs_path = self.resolve_fixture_path(path);
     fs::create_dir_all(&fs_path)?;
@@ -133,11 +158,15 @@ impl TestDbBuilder {
     }
 
     for (referrer, reference) in refs {
-      let referrer_id = *path_ids
+      let referrer_id = path_ids
         .get(referrer)
+        .copied()
+        .or_else(|| self.get_id(referrer))
         .ok_or_else(|| eyre::eyre!("Referrer not found: {referrer}"))?;
-      let reference_id = *path_ids
+      let reference_id = path_ids
         .get(reference)
+        .copied()
+        .or_else(|| self.get_id(reference))
         .ok_or_else(|| eyre::eyre!("Reference not found: {reference}"))?;
       self.add_reference(referrer_id, reference_id)?;
     }
@@ -185,12 +214,16 @@ pub fn create_system_test_db() -> Result<TestDbBuilder> {
   let db = TestDbBuilder::new()?;
 
   // System-level paths
-  let system = fixtures::system_path("nixos-25.11");
-  let system_path =
+  let system_old = fixtures::system_path("nixos-25.11");
+  let system_path_old =
     format!("{}-system-path", fixtures::store_path("nixos-25.11"));
+  let system_new = fixtures::system_path("nixos-25.12");
+  let system_path_new =
+    format!("{}-system-path", fixtures::store_path("nixos-25.12"));
 
   // Package paths
-  let glibc = fixtures::store_path("glibc-2.38");
+  let glibc_old = fixtures::store_path("glibc-2.38");
+  let glibc_new = fixtures::store_path("glibc-2.39");
   let bash = fixtures::store_path("bash-5.2.15");
   let coreutils = fixtures::store_path("coreutils-9.3");
 
@@ -198,18 +231,32 @@ pub fn create_system_test_db() -> Result<TestDbBuilder> {
   // system -> system-path -> packages
   db.create_closure(
     vec![
-      (&system, 0),
-      (&system_path, 1000),
-      (&glibc, 50_000_000),
+      (&system_old, 0),
+      (&system_path_old, 1000),
+      (&glibc_old, 50_000_000),
       (&bash, 5_000_000),
       (&coreutils, 10_000_000),
     ],
     vec![
-      (&system, &system_path),
-      (&system_path, &bash),
-      (&system_path, &coreutils),
-      (&bash, &glibc),
-      (&coreutils, &glibc),
+      (&system_old, &system_path_old),
+      (&system_path_old, &bash),
+      (&system_path_old, &coreutils),
+      (&bash, &glibc_old),
+      (&coreutils, &glibc_old),
+    ],
+  )?;
+  db.create_closure(
+    vec![
+      (&system_new, 0),
+      (&system_path_new, 1000),
+      (&glibc_new, 50_000_000),
+    ],
+    vec![
+      (&system_new, &system_path_new),
+      (&system_path_new, &bash),
+      (&system_path_new, &coreutils),
+      (&bash, &glibc_new),
+      (&coreutils, &glibc_new),
     ],
   )?;
 

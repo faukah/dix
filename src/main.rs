@@ -151,12 +151,7 @@ fn main() -> eyre::Result<()> {
     },
     #[cfg(feature = "json")]
     OutputFormat::Json => {
-      json::display_diff(
-        &mut io::stdout(),
-        &old_path,
-        &new_path,
-        force_correctness,
-      )?;
+      json::display_diff(&old_path, &new_path, force_correctness)?;
     },
     #[cfg(not(feature = "json"))]
     OutputFormat::Json => {

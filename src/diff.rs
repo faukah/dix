@@ -64,7 +64,7 @@ pub(crate) fn create_backend<'a>(
   }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "json", derive(Serialize))]
 pub struct Diff<T = Vec<Version>> {
   pub name:                String,
@@ -149,7 +149,7 @@ impl cmp::Ord for DiffStatus {
 
 /// Documents if the derivation is a system package and if
 /// it was added / removed as such.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 #[cfg_attr(feature = "json", derive(Serialize))]
 pub enum DerivationSelectionStatus {
   /// The derivation is a system package, status unchanged.

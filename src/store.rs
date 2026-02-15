@@ -1,15 +1,16 @@
 //! Provides an interface for querying data from the nix store.
 //!
 //! - [`LazyDBConnection`] is a lazy connection the underlying sqlite database.
-mod db_common;
-mod db_eager;
-mod db_lazy;
-mod nix_command;
+//! - [`EagerDBConnection`] is an eager connection the underlying sqlite
+//!   database.
+//! - [`CommandBackend`] uses nix commands to interact with the store.
+pub mod db_common;
+pub mod db_eager;
+pub mod db_lazy;
+pub mod nix_command;
 mod queries;
-
-pub mod store {
-  pub use crate::store::db_lazy::LazyDBConnection;
-}
+// Make the test db available for the rest of the crate.
+#[cfg(test)] pub(crate) mod test_utils;
 
 use std::{
   fmt::Display,
@@ -17,21 +18,17 @@ use std::{
   path::Path,
 };
 
+pub use db_eager::EagerDBConnection;
+pub use db_lazy::LazyDBConnection;
 use eyre::{
   Result,
   eyre,
 };
+pub use nix_command::CommandBackend;
 use size::Size;
 use tracing::warn;
 
-use crate::{
-  StorePath,
-  store::{
-    db_eager::EagerDBConnection,
-    nix_command::CommandBackend,
-    store::LazyDBConnection,
-  },
-};
+use crate::StorePath;
 /// The normal database connection
 pub const DATABASE_PATH: &str = "file:/nix/var/nix/db/db.sqlite";
 /// A backup database connection that can access the database

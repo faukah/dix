@@ -67,8 +67,8 @@ impl StorePath {
     static STORE_PATH_REGEX: sync::LazyLock<regex::Regex> =
       sync::LazyLock::new(|| {
         regex::Regex::new(
-          "(?<prefix>(/nix/store/)|(/tmp/.+?/))(?<name>.+?)(-(?<version>[0-9].\
-           *?))?$",
+          "(?<prefix>((/nix/store/)|(/tmp/.+?/))[a-zA-Z0-9]{32}-)(?<name>.+?\
+           )(-(?<version>[0-9].*?))?$",
         )
         .expect("failed to compile regex for Nix store paths")
       });

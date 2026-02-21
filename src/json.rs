@@ -125,7 +125,7 @@ mod tests {
     let system_new =
       db_builder.resolve_fixture_path(&fixtures::system_path("nixos-25.12"));
 
-    let expected_output = r#"{"diffs":[{"name":"nix/store/00000000000000000000000000000000-nixos","old":[{"name":"25.11-system-path","amount":1},{"name":"25.11-system","amount":1}],"new":[{"name":"25.12-system-path","amount":1},{"name":"25.12-system","amount":1}],"status":{"Changed":"Upgraded"},"selection":"Unselected","has_common_versions":false}],"size_old":115001000,"size_new":115001000}"#;
+    let expected_output = r#"{"diffs":[{"name":"nixos","old":[{"name":"25.11-system-path","amount":1},{"name":"25.11-system","amount":1}],"new":[{"name":"25.12-system-path","amount":1},{"name":"25.12-system","amount":1}],"status":{"Changed":"Upgraded"},"selection":"Unselected","has_common_versions":false}],"size_old":115001000,"size_new":115001000}"#;
 
     let mut actual_output = Vec::new();
     generate_diff(

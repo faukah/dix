@@ -44,10 +44,10 @@ impl TryFrom<PathBuf> for StorePath {
 
   fn try_from(path: PathBuf) -> Result<Self> {
     tracing::trace!(path = %path.display(), "validating store path");
-    if !path.starts_with("/nix/store") {
-      tracing::warn!(path = %path.display(), "path does not start with /nix/store");
+    if !(path.starts_with("/nix/store") || path.starts_with("/tmp/")) {
+      tracing::warn!(path = %path.display(), "path does not start with /nix/store or /tmp/");
       bail!(
-        "path {path} must start with /nix/store",
+        "path {path} must start with /nix/store or /tmp/",
         path = path.display(),
       );
     }

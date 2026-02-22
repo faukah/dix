@@ -1049,598 +1049,645 @@ pub fn add_selection_status(
   }
 }
 
-#[test]
-fn basic_component_edit_dist() {
-  let from = Version::from("foo-123.0-man-pages".to_owned());
-  let from: Vec<VersionComponent> = from
-    .into_iter()
-    .filter_map(VersionPiece::component)
-    .collect();
+#[cfg(test)]
+mod tests {
+  use proptest::proptest;
 
-  let to = Version::from("foo-123.4.12-man-pages".to_owned());
-  let to: Vec<VersionComponent> =
-    to.into_iter().filter_map(VersionPiece::component).collect();
+  use super::*;
 
-  let dist = levenshtein(&from, &to);
-  assert_eq!(dist, 2);
-}
+  proptest! {
+    #[test]
+    fn no_crash_edit_dist(from in r"(\PC-)*(\PC)?", to in r"(\PC-)*(\PC)?") {
+      let from = Version::from(from);
+      let from: Vec<VersionComponent> = from
+        .into_iter()
+        .filter_map(VersionPiece::component)
+        .collect();
 
-#[test]
-fn levenshtein_distance_tests() {
-  assert_eq!(
-    levenshtein(
-      &"kitten".chars().collect::<Vec<_>>(),
-      &"sitting".chars().collect::<Vec<_>>()
-    ),
-    3
-  );
+      let to = Version::from(to);
+      let to: Vec<VersionComponent> =to
+        .into_iter()
+        .filter_map(VersionPiece::component)
+        .collect();
 
-  assert_eq!(
-    levenshtein(
-      &"".chars().collect::<Vec<_>>(),
-      &"hello".chars().collect::<Vec<_>>()
-    ),
-    5
-  );
 
-  assert_eq!(
-    levenshtein(
-      &"abcd".chars().collect::<Vec<_>>(),
-      &"dcba".chars().collect::<Vec<_>>()
-    ),
-    4
-  );
+      levenshtein(&*from, &*to);
+    }
+    #[test]
+    fn symmetry_edit_dist(from in r"(\PC-)*(\PC)?", to in r"(\PC-)*(\PC)?") {
+      let from = Version::from(from);
+      let from: Vec<VersionComponent> = from
+        .into_iter()
+        .filter_map(VersionPiece::component)
+        .collect();
 
-  assert_eq!(
-    levenshtein(
-      &"12345".chars().collect::<Vec<_>>(),
-      &"12345".chars().collect::<Vec<_>>()
-    ),
-    0
-  );
+      let to = Version::from(to);
+      let to: Vec<VersionComponent> =to
+        .into_iter()
+        .filter_map(VersionPiece::component)
+        .collect();
 
-  assert_eq!(
-    levenshtein(
-      &"distance".chars().collect::<Vec<_>>(),
-      &"difference".chars().collect::<Vec<_>>()
-    ),
-    5
-  );
-}
 
-#[test]
-fn match_version_lists_test() {
-  let version_list_a = [Version::new("6.16.0"), Version::new("5.116.0")];
-  let version_list_b = [Version::new("6.17.0"), Version::new("5.116.0-bin")];
-
-  let matched = match_version_lists(&version_list_a, &version_list_b);
-
-  for version in matched {
-    #[expect(clippy::print_stdout)]
-    match version {
-      itertools::EitherOrBoth::Both(left, right) => {
-        println!("{left} {right}");
-        assert!(
-          left == &Version::new("6.16.0") || left == &Version::new("5.116.0")
-        );
-        assert!(
-          right == &Version::new("6.17.0")
-            || right == &Version::new("5.116.0-bin")
-        );
-      },
-      itertools::EitherOrBoth::Left(left) => {
-        println!("{left}");
-        assert!(left == &Version::new("5.116.0-bin"))
-      },
-      itertools::EitherOrBoth::Right(right) => {
-        println!("{right}");
-        assert!(right == &Version::new("5.116.0"))
-      },
+      let forward = levenshtein(&*from, &*to);
+      let backward = levenshtein(&*to, &*from);
+      assert_eq!(forward, backward);
     }
   }
-}
 
-#[test]
-fn generate_diffs_from_paths_test() {
-  let mut paths: HashMap<String, (Vec<Version>, Vec<Version>)> = HashMap::new();
+  #[test]
+  fn basic_component_edit_dist() {
+    let from = Version::from("foo-123.0-man-pages".to_owned());
+    let from: Vec<VersionComponent> = from
+      .into_iter()
+      .filter_map(VersionPiece::component)
+      .collect();
 
-  let diff_1 = (vec![Version::new("1.1.0"), Version::new("1.3")], vec![
-    Version::new("1.1.0"),
-    Version::new("1.4"),
-  ]);
-  paths.insert("tmp".to_owned(), diff_1);
-  let mut vec_1 = generate_diffs_from_paths(paths);
-  add_selection_status(
-    &mut vec_1,
-    &HashSet::<String>::new(),
-    &HashSet::<String>::new(),
-  );
-  let res_2 = Diff {
-    name:                "tmp".to_owned(),
-    old:                 vec![Version::new("1.3")],
-    new:                 vec![Version::new("1.4")],
-    status:              DiffStatus::Changed(Change::Upgraded),
-    selection:           DerivationSelectionStatus::Unselected,
-    has_common_versions: true,
-  };
-  assert_eq!(vec_1.first().unwrap(), &res_2);
+    let to = Version::from("foo-123.4.12-man-pages".to_owned());
+    let to: Vec<VersionComponent> =
+      to.into_iter().filter_map(VersionPiece::component).collect();
 
-  paths = HashMap::new();
+    let dist = levenshtein(&from, &to);
+    assert_eq!(dist, 2);
+  }
 
-  let diff_2 = (vec![Version::new("1.2.0"), Version::new("1.5")], vec![
-    Version::new("1.2.0"),
-  ]);
-  paths.insert("tmp".to_owned(), diff_2);
-  let mut vec_2 = generate_diffs_from_paths(paths);
-  add_selection_status(
-    &mut vec_2,
-    &HashSet::<String>::new(),
-    &HashSet::<String>::new(),
-  );
-  let res_2 = Diff {
-    name:                "tmp".to_owned(),
-    old:                 vec![Version::new("1.5")],
-    new:                 vec![],
-    status:              DiffStatus::Changed(Change::UpgradeDowngrade),
-    selection:           DerivationSelectionStatus::Unselected,
-    has_common_versions: true,
-  };
-  assert_eq!(vec_2.first().unwrap(), &res_2);
-}
+  #[test]
+  fn levenshtein_distance_tests() {
+    assert_eq!(
+      levenshtein(
+        &"kitten".chars().collect::<Vec<_>>(),
+        &"sitting".chars().collect::<Vec<_>>()
+      ),
+      3
+    );
 
-#[test]
-fn levenshtein_edge_cases() {
-  // Both empty
-  assert_eq!(levenshtein::<char>(&[], &[]), 0);
+    assert_eq!(
+      levenshtein(
+        &"".chars().collect::<Vec<_>>(),
+        &"hello".chars().collect::<Vec<_>>()
+      ),
+      5
+    );
 
-  // One empty, one single char
-  assert_eq!(levenshtein(&['a'], &[]), 1);
-  assert_eq!(levenshtein(&[], &['a']), 1);
+    assert_eq!(
+      levenshtein(
+        &"abcd".chars().collect::<Vec<_>>(),
+        &"dcba".chars().collect::<Vec<_>>()
+      ),
+      4
+    );
 
-  // Single char different
-  assert_eq!(levenshtein(&['a'], &['b']), 1);
+    assert_eq!(
+      levenshtein(
+        &"12345".chars().collect::<Vec<_>>(),
+        &"12345".chars().collect::<Vec<_>>()
+      ),
+      0
+    );
 
-  // Single char same
-  assert_eq!(levenshtein(&['a'], &['a']), 0);
+    assert_eq!(
+      levenshtein(
+        &"distance".chars().collect::<Vec<_>>(),
+        &"difference".chars().collect::<Vec<_>>()
+      ),
+      5
+    );
+  }
 
-  // Transposition
-  assert_eq!(
-    levenshtein(
-      &"ab".chars().collect::<Vec<_>>(),
-      &"ba".chars().collect::<Vec<_>>()
-    ),
-    2
-  );
+  #[test]
+  fn match_version_lists_test() {
+    let version_list_a = [Version::new("6.16.0"), Version::new("5.116.0")];
+    let version_list_b = [Version::new("6.17.0"), Version::new("5.116.0-bin")];
 
-  // Case sensitivity
-  assert_eq!(
-    levenshtein(
-      &"ABC".chars().collect::<Vec<_>>(),
-      &"abc".chars().collect::<Vec<_>>()
-    ),
-    3
-  );
+    let matched = match_version_lists(&version_list_a, &version_list_b);
 
-  // Long identical strings
-  let long = "a".repeat(1000);
-  assert_eq!(
-    levenshtein(
-      &long.chars().collect::<Vec<_>>(),
-      &long.chars().collect::<Vec<_>>()
-    ),
-    0
-  );
-
-  // Long completely different strings
-  let long_a = "a".repeat(1000);
-  let long_b = "b".repeat(1000);
-  assert_eq!(
-    levenshtein(
-      &long_a.chars().collect::<Vec<_>>(),
-      &long_b.chars().collect::<Vec<_>>()
-    ),
-    1000
-  );
-
-  // Unicode characters
-  assert_eq!(
-    levenshtein(
-      &"こんにちは".chars().collect::<Vec<_>>(),
-      &"こんばんは".chars().collect::<Vec<_>>()
-    ),
-    2
-  );
-
-  // Substring relationship
-  assert_eq!(
-    levenshtein(
-      &"abc".chars().collect::<Vec<_>>(),
-      &"abcabc".chars().collect::<Vec<_>>()
-    ),
-    3
-  );
-
-  // Numbers
-  assert_eq!(levenshtein(&[1, 2, 3], &[1, 2, 3, 4, 5]), 2);
-}
-
-#[test]
-fn match_version_lists_empty() {
-  let empty: &[Version] = &[];
-  let versions = [Version::new("1.0.0")];
-
-  // Empty left
-  let result = match_version_lists(empty, &versions);
-  assert_eq!(result.len(), 1);
-  assert!(matches!(result[0], itertools::EitherOrBoth::Right(_)));
-
-  // Empty right
-  let result = match_version_lists(&versions, empty);
-  assert_eq!(result.len(), 1);
-  assert!(matches!(result[0], itertools::EitherOrBoth::Left(_)));
-
-  // Both empty
-  let result = match_version_lists(empty, empty);
-  assert!(result.is_empty());
-}
-
-#[test]
-fn match_version_lists_exact_matches() {
-  // Exact same single version
-  let a = [Version::new("1.0.0")];
-  let b = [Version::new("1.0.0")];
-  let result = match_version_lists(&a, &b);
-  assert_eq!(result.len(), 1);
-  assert!(matches!(result[0], itertools::EitherOrBoth::Both(_, _)));
-
-  // Exact same multiple versions
-  let a = [Version::new("1.0.0"), Version::new("2.0.0")];
-  let b = [Version::new("1.0.0"), Version::new("2.0.0")];
-  let result = match_version_lists(&a, &b);
-  let both_count = result
-    .iter()
-    .filter(|r| matches!(r, itertools::EitherOrBoth::Both(_, _)))
-    .count();
-  assert_eq!(both_count, 2);
-}
-
-#[test]
-fn match_version_lists_unequal_sizes() {
-  // More versions on left
-  let a = [
-    Version::new("1.0.0"),
-    Version::new("2.0.0"),
-    Version::new("3.0.0"),
-  ];
-  let b = [Version::new("1.0.0")];
-  let result = match_version_lists(&a, &b);
-  assert_eq!(result.len(), 3);
-
-  // More versions on right
-  let a = [Version::new("1.0.0")];
-  let b = [
-    Version::new("1.0.0"),
-    Version::new("2.0.0"),
-    Version::new("3.0.0"),
-  ];
-  let result = match_version_lists(&a, &b);
-  assert_eq!(result.len(), 3);
-}
-
-#[test]
-fn match_version_lists_similar_versions() {
-  // Similar versions should be matched together
-  let a = [Version::new("1.0.0"), Version::new("2.0.0")];
-  let b = [Version::new("1.0.1"), Version::new("2.0.0")];
-  let result = match_version_lists(&a, &b);
-
-  // 2.0.0 should be matched exactly
-  let exact_match = result.iter().any(|r| {
-    if let itertools::EitherOrBoth::Both(left, right) = r {
-      left.name == "2.0.0" && right.name == "2.0.0"
-    } else {
-      false
+    for version in matched {
+      #[expect(clippy::print_stdout)]
+      match version {
+        itertools::EitherOrBoth::Both(left, right) => {
+          println!("{left} {right}");
+          assert!(
+            left == &Version::new("6.16.0") || left == &Version::new("5.116.0")
+          );
+          assert!(
+            right == &Version::new("6.17.0")
+              || right == &Version::new("5.116.0-bin")
+          );
+        },
+        itertools::EitherOrBoth::Left(left) => {
+          println!("{left}");
+          assert!(left == &Version::new("5.116.0-bin"))
+        },
+        itertools::EitherOrBoth::Right(right) => {
+          println!("{right}");
+          assert!(right == &Version::new("5.116.0"))
+        },
+      }
     }
-  });
-  assert!(exact_match);
-}
+  }
 
-#[test]
-fn generate_diffs_empty_paths() {
-  let paths: HashMap<String, (Vec<Version>, Vec<Version>)> = HashMap::new();
-  let result = generate_diffs_from_paths(paths);
-  assert!(result.is_empty());
-}
+  #[test]
+  fn generate_diffs_from_paths_test() {
+    let mut paths: HashMap<String, (Vec<Version>, Vec<Version>)> =
+      HashMap::new();
 
-#[test]
-fn generate_diffs_unchanged_package() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "package".to_owned(),
-    (vec![Version::new("1.0.0")], vec![Version::new("1.0.0")]),
-  );
-  let result = generate_diffs_from_paths(paths);
-  assert!(result.is_empty()); // No changes, should be filtered out
-}
+    let diff_1 = (vec![Version::new("1.1.0"), Version::new("1.3")], vec![
+      Version::new("1.1.0"),
+      Version::new("1.4"),
+    ]);
+    paths.insert("tmp".to_owned(), diff_1);
+    let mut vec_1 = generate_diffs_from_paths(paths);
+    add_selection_status(
+      &mut vec_1,
+      &HashSet::<String>::new(),
+      &HashSet::<String>::new(),
+    );
+    let res_2 = Diff {
+      name:                "tmp".to_owned(),
+      old:                 vec![Version::new("1.3")],
+      new:                 vec![Version::new("1.4")],
+      status:              DiffStatus::Changed(Change::Upgraded),
+      selection:           DerivationSelectionStatus::Unselected,
+      has_common_versions: true,
+    };
+    assert_eq!(vec_1.first().unwrap(), &res_2);
 
-#[test]
-fn generate_diffs_added_package() {
-  let mut paths = HashMap::new();
-  paths.insert("new-pkg".to_owned(), (vec![], vec![Version::new("1.0.0")]));
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  assert_eq!(result[0].name, "new-pkg");
-  assert_eq!(result[0].status, DiffStatus::Added);
-  assert!(result[0].old.is_empty());
-  assert_eq!(result[0].new.len(), 1);
-}
+    paths = HashMap::new();
 
-#[test]
-fn generate_diffs_removed_package() {
-  let mut paths = HashMap::new();
-  paths.insert("old-pkg".to_owned(), (vec![Version::new("1.0.0")], vec![]));
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  assert_eq!(result[0].name, "old-pkg");
-  assert_eq!(result[0].status, DiffStatus::Removed);
-  assert_eq!(result[0].old.len(), 1);
-  assert!(result[0].new.is_empty());
-}
+    let diff_2 = (vec![Version::new("1.2.0"), Version::new("1.5")], vec![
+      Version::new("1.2.0"),
+    ]);
+    paths.insert("tmp".to_owned(), diff_2);
+    let mut vec_2 = generate_diffs_from_paths(paths);
+    add_selection_status(
+      &mut vec_2,
+      &HashSet::<String>::new(),
+      &HashSet::<String>::new(),
+    );
+    let res_2 = Diff {
+      name:                "tmp".to_owned(),
+      old:                 vec![Version::new("1.5")],
+      new:                 vec![],
+      status:              DiffStatus::Changed(Change::UpgradeDowngrade),
+      selection:           DerivationSelectionStatus::Unselected,
+      has_common_versions: true,
+    };
+    assert_eq!(vec_2.first().unwrap(), &res_2);
+  }
 
-#[test]
-fn generate_diffs_upgraded() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "pkg".to_owned(),
-    (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
-  );
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  assert_eq!(result[0].status, DiffStatus::Changed(Change::Upgraded));
-  assert_eq!(result[0].old[0].name, "1.0.0");
-  assert_eq!(result[0].new[0].name, "2.0.0");
-}
+  #[test]
+  fn levenshtein_edge_cases() {
+    // Both empty
+    assert_eq!(levenshtein::<char>(&[], &[]), 0);
 
-#[test]
-fn generate_diffs_downgraded() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "pkg".to_owned(),
-    (vec![Version::new("2.0.0")], vec![Version::new("1.0.0")]),
-  );
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  assert_eq!(result[0].status, DiffStatus::Changed(Change::Downgraded));
-}
+    // One empty, one single char
+    assert_eq!(levenshtein(&['a'], &[]), 1);
+    assert_eq!(levenshtein(&[], &['a']), 1);
 
-#[test]
-fn generate_diffs_upgrade_downgrade() {
-  let mut paths = HashMap::new();
-  // Test with 3 versions: one upgrade, one downgrade
-  // Old: 1.0, 5.0
-  // New: 2.0, 4.0
-  // Matching: 1.0->2.0 (upgrade), 5.0 unmatched (downgrade), 4.0 unmatched
-  // (upgrade) Result: UpgradeDowngrade (both types present)
-  paths.insert(
-    "pkg".to_owned(),
-    (vec![Version::new("1.0"), Version::new("5.0")], vec![
-      Version::new("2.0"),
-      Version::new("4.0"),
-    ]),
-  );
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  // Should detect both upgrade and downgrade
-  assert_eq!(
-    result[0].status,
-    DiffStatus::Changed(Change::UpgradeDowngrade)
-  );
-}
+    // Single char different
+    assert_eq!(levenshtein(&['a'], &['b']), 1);
 
-#[test]
-fn generate_diffs_multiple_packages() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "pkg-a".to_owned(),
-    (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
-  );
-  paths.insert("pkg-b".to_owned(), (vec![], vec![Version::new("1.0.0")]));
-  paths.insert(
+    // Single char same
+    assert_eq!(levenshtein(&['a'], &['a']), 0);
+
+    // Transposition
+    assert_eq!(
+      levenshtein(
+        &"ab".chars().collect::<Vec<_>>(),
+        &"ba".chars().collect::<Vec<_>>()
+      ),
+      2
+    );
+
+    // Case sensitivity
+    assert_eq!(
+      levenshtein(
+        &"ABC".chars().collect::<Vec<_>>(),
+        &"abc".chars().collect::<Vec<_>>()
+      ),
+      3
+    );
+
+    // Long identical strings
+    let long = "a".repeat(1000);
+    assert_eq!(
+      levenshtein(
+        &long.chars().collect::<Vec<_>>(),
+        &long.chars().collect::<Vec<_>>()
+      ),
+      0
+    );
+
+    // Long completely different strings
+    let long_a = "a".repeat(1000);
+    let long_b = "b".repeat(1000);
+    assert_eq!(
+      levenshtein(
+        &long_a.chars().collect::<Vec<_>>(),
+        &long_b.chars().collect::<Vec<_>>()
+      ),
+      1000
+    );
+
+    // Unicode characters
+    assert_eq!(
+      levenshtein(
+        &"こんにちは".chars().collect::<Vec<_>>(),
+        &"こんばんは".chars().collect::<Vec<_>>()
+      ),
+      2
+    );
+
+    // Substring relationship
+    assert_eq!(
+      levenshtein(
+        &"abc".chars().collect::<Vec<_>>(),
+        &"abcabc".chars().collect::<Vec<_>>()
+      ),
+      3
+    );
+
+    // Numbers
+    assert_eq!(levenshtein(&[1, 2, 3], &[1, 2, 3, 4, 5]), 2);
+  }
+
+  #[test]
+  fn match_version_lists_empty() {
+    let empty: &[Version] = &[];
+    let versions = [Version::new("1.0.0")];
+
+    // Empty left
+    let result = match_version_lists(empty, &versions);
+    assert_eq!(result.len(), 1);
+    assert!(matches!(result[0], itertools::EitherOrBoth::Right(_)));
+
+    // Empty right
+    let result = match_version_lists(&versions, empty);
+    assert_eq!(result.len(), 1);
+    assert!(matches!(result[0], itertools::EitherOrBoth::Left(_)));
+
+    // Both empty
+    let result = match_version_lists(empty, empty);
+    assert!(result.is_empty());
+  }
+
+  #[test]
+  fn match_version_lists_exact_matches() {
+    // Exact same single version
+    let a = [Version::new("1.0.0")];
+    let b = [Version::new("1.0.0")];
+    let result = match_version_lists(&a, &b);
+    assert_eq!(result.len(), 1);
+    assert!(matches!(result[0], itertools::EitherOrBoth::Both(_, _)));
+
+    // Exact same multiple versions
+    let a = [Version::new("1.0.0"), Version::new("2.0.0")];
+    let b = [Version::new("1.0.0"), Version::new("2.0.0")];
+    let result = match_version_lists(&a, &b);
+    let both_count = result
+      .iter()
+      .filter(|r| matches!(r, itertools::EitherOrBoth::Both(_, _)))
+      .count();
+    assert_eq!(both_count, 2);
+  }
+
+  #[test]
+  fn match_version_lists_unequal_sizes() {
+    // More versions on left
+    let a = [
+      Version::new("1.0.0"),
+      Version::new("2.0.0"),
+      Version::new("3.0.0"),
+    ];
+    let b = [Version::new("1.0.0")];
+    let result = match_version_lists(&a, &b);
+    assert_eq!(result.len(), 3);
+
+    // More versions on right
+    let a = [Version::new("1.0.0")];
+    let b = [
+      Version::new("1.0.0"),
+      Version::new("2.0.0"),
+      Version::new("3.0.0"),
+    ];
+    let result = match_version_lists(&a, &b);
+    assert_eq!(result.len(), 3);
+  }
+
+  #[test]
+  fn match_version_lists_similar_versions() {
+    // Similar versions should be matched together
+    let a = [Version::new("1.0.0"), Version::new("2.0.0")];
+    let b = [Version::new("1.0.1"), Version::new("2.0.0")];
+    let result = match_version_lists(&a, &b);
+
+    // 2.0.0 should be matched exactly
+    let exact_match = result.iter().any(|r| {
+      if let itertools::EitherOrBoth::Both(left, right) = r {
+        left.name == "2.0.0" && right.name == "2.0.0"
+      } else {
+        false
+      }
+    });
+    assert!(exact_match);
+  }
+
+  #[test]
+  fn generate_diffs_empty_paths() {
+    let paths: HashMap<String, (Vec<Version>, Vec<Version>)> = HashMap::new();
+    let result = generate_diffs_from_paths(paths);
+    assert!(result.is_empty());
+  }
+
+  #[test]
+  fn generate_diffs_unchanged_package() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "package".to_owned(),
+      (vec![Version::new("1.0.0")], vec![Version::new("1.0.0")]),
+    );
+    let result = generate_diffs_from_paths(paths);
+    assert!(result.is_empty()); // No changes, should be filtered out
+  }
+
+  #[test]
+  fn generate_diffs_added_package() {
+    let mut paths = HashMap::new();
+    paths.insert("new-pkg".to_owned(), (vec![], vec![Version::new("1.0.0")]));
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].name, "new-pkg");
+    assert_eq!(result[0].status, DiffStatus::Added);
+    assert!(result[0].old.is_empty());
+    assert_eq!(result[0].new.len(), 1);
+  }
+
+  #[test]
+  fn generate_diffs_removed_package() {
+    let mut paths = HashMap::new();
+    paths.insert("old-pkg".to_owned(), (vec![Version::new("1.0.0")], vec![]));
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].name, "old-pkg");
+    assert_eq!(result[0].status, DiffStatus::Removed);
+    assert_eq!(result[0].old.len(), 1);
+    assert!(result[0].new.is_empty());
+  }
+
+  #[test]
+  fn generate_diffs_upgraded() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "pkg".to_owned(),
+      (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
+    );
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].status, DiffStatus::Changed(Change::Upgraded));
+    assert_eq!(result[0].old[0].name, "1.0.0");
+    assert_eq!(result[0].new[0].name, "2.0.0");
+  }
+
+  #[test]
+  fn generate_diffs_downgraded() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "pkg".to_owned(),
+      (vec![Version::new("2.0.0")], vec![Version::new("1.0.0")]),
+    );
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].status, DiffStatus::Changed(Change::Downgraded));
+  }
+
+  #[test]
+  fn generate_diffs_upgrade_downgrade() {
+    let mut paths = HashMap::new();
+    // Test with 3 versions: one upgrade, one downgrade
+    // Old: 1.0, 5.0
+    // New: 2.0, 4.0
+    // Matching: 1.0->2.0 (upgrade), 5.0 unmatched (downgrade), 4.0 unmatched
+    // (upgrade) Result: UpgradeDowngrade (both types present)
+    paths.insert(
+      "pkg".to_owned(),
+      (vec![Version::new("1.0"), Version::new("5.0")], vec![
+        Version::new("2.0"),
+        Version::new("4.0"),
+      ]),
+    );
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    // Should detect both upgrade and downgrade
+    assert_eq!(
+      result[0].status,
+      DiffStatus::Changed(Change::UpgradeDowngrade)
+    );
+  }
+
+  #[test]
+  fn generate_diffs_multiple_packages() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "pkg-a".to_owned(),
+      (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
+    );
+    paths.insert("pkg-b".to_owned(), (vec![], vec![Version::new("1.0.0")]));
+    paths.insert(
     "pkg-c".to_owned(),
     (vec![Version::new("1.0.0")], vec![Version::new("1.0.0")]), // unchanged, filtered
   );
 
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 2);
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 2);
 
-  let names: HashSet<_> = result.iter().map(|d| d.name.as_str()).collect();
-  assert!(names.contains("pkg-a"));
-  assert!(names.contains("pkg-b"));
-  assert!(!names.contains("pkg-c"));
-}
+    let names: HashSet<_> = result.iter().map(|d| d.name.as_str()).collect();
+    assert!(names.contains("pkg-a"));
+    assert!(names.contains("pkg-b"));
+    assert!(!names.contains("pkg-c"));
+  }
 
-#[test]
-fn generate_diffs_version_deduplication() {
-  let mut paths = HashMap::new();
-  // Multiple identical versions should be counted
-  paths.insert(
-    "pkg".to_owned(),
-    (
-      vec![
-        Version::new("1.0.0"),
-        Version::new("1.0.0"),
-        Version::new("1.0.0"),
-      ],
-      vec![Version::new("2.0.0")],
-    ),
-  );
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  // Should detect the upgrade from 1.0.0 to 2.0.0
-  assert_eq!(result[0].status, DiffStatus::Changed(Change::Upgraded));
-}
+  #[test]
+  fn generate_diffs_version_deduplication() {
+    let mut paths = HashMap::new();
+    // Multiple identical versions should be counted
+    paths.insert(
+      "pkg".to_owned(),
+      (
+        vec![
+          Version::new("1.0.0"),
+          Version::new("1.0.0"),
+          Version::new("1.0.0"),
+        ],
+        vec![Version::new("2.0.0")],
+      ),
+    );
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    // Should detect the upgrade from 1.0.0 to 2.0.0
+    assert_eq!(result[0].status, DiffStatus::Changed(Change::Upgraded));
+  }
 
-#[test]
-fn generate_diffs_common_versions() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "pkg".to_owned(),
-    (vec![Version::new("1.0.0"), Version::new("2.0.0")], vec![
-      Version::new("2.0.0"),
-      Version::new("3.0.0"),
-    ]),
-  );
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  assert!(result[0].has_common_versions);
-  assert_eq!(result[0].status, DiffStatus::Changed(Change::Upgraded));
-}
-
-#[test]
-fn selection_status_selected() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "system-pkg".to_owned(),
-    (vec![Version::new("1.0.0")], vec![Version::new("1.0.0")]),
-  );
-
-  let result = generate_diffs_from_paths(paths);
-  assert!(result.is_empty()); // No changes
-
-  // Create a changed package for selection testing
-  let mut paths = HashMap::new();
-  paths.insert(
-    "system-pkg".to_owned(),
-    (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
-  );
-
-  let mut result = generate_diffs_from_paths(paths);
-  let mut sys_old = HashSet::new();
-  let mut sys_new = HashSet::new();
-  sys_old.insert("system-pkg".to_owned());
-  sys_new.insert("system-pkg".to_owned());
-
-  add_selection_status(&mut result, &sys_old, &sys_new);
-  assert_eq!(result[0].selection, DerivationSelectionStatus::Selected);
-}
-
-#[test]
-fn selection_status_newly_selected() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "new-system-pkg".to_owned(),
-    (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
-  );
-
-  let mut result = generate_diffs_from_paths(paths);
-  let sys_old = HashSet::new();
-  let mut sys_new = HashSet::new();
-  sys_new.insert("new-system-pkg".to_owned());
-
-  add_selection_status(&mut result, &sys_old, &sys_new);
-  assert_eq!(
-    result[0].selection,
-    DerivationSelectionStatus::NewlySelected
-  );
-}
-
-#[test]
-fn selection_status_newly_unselected() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "removed-system-pkg".to_owned(),
-    (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
-  );
-
-  let mut result = generate_diffs_from_paths(paths);
-  let mut sys_old = HashSet::new();
-  let sys_new = HashSet::new();
-  sys_old.insert("removed-system-pkg".to_owned());
-
-  add_selection_status(&mut result, &sys_old, &sys_new);
-  assert_eq!(
-    result[0].selection,
-    DerivationSelectionStatus::NewlyUnselected
-  );
-}
-
-#[test]
-fn selection_status_unselected() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "dep-pkg".to_owned(),
-    (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
-  );
-
-  let mut result = generate_diffs_from_paths(paths);
-  let sys_old = HashSet::new();
-  let sys_new = HashSet::new();
-
-  add_selection_status(&mut result, &sys_old, &sys_new);
-  assert_eq!(result[0].selection, DerivationSelectionStatus::Unselected);
-}
-
-#[test]
-fn generate_diffs_many_versions() {
-  let mut paths = HashMap::new();
-  let old_versions: Vec<_> = (0..100)
-    .map(|i| Version::new(format!("1.{i}.{i}")))
-    .collect();
-  let new_versions: Vec<_> = (50..150)
-    .map(|i| Version::new(format!("1.{i}.{i}")))
-    .collect();
-
-  paths.insert("large-pkg".to_owned(), (old_versions, new_versions));
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  assert!(result[0].has_common_versions);
-  // Should have 50 old-only and 50 new-only versions
-  assert_eq!(result[0].old.len(), 50);
-  assert_eq!(result[0].new.len(), 50);
-}
-
-#[test]
-fn generate_diffs_prerelease_versions() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "pkg".to_owned(),
-    (
-      vec![Version::new("1.0.0-alpha"), Version::new("1.0.0-beta")],
-      vec![Version::new("1.0.0"), Version::new("1.0.0-rc")],
-    ),
-  );
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  // All versions are different
-  assert_eq!(result[0].old.len(), 2);
-  assert_eq!(result[0].new.len(), 2);
-}
-
-#[test]
-fn generate_diffs_complex_version_changes() {
-  let mut paths = HashMap::new();
-  paths.insert(
-    "complex-pkg".to_owned(),
-    (
-      vec![
-        Version::new("1.0.0"),
-        Version::new("1.0.1"),
-        Version::new("1.1.0"),
+  #[test]
+  fn generate_diffs_common_versions() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "pkg".to_owned(),
+      (vec![Version::new("1.0.0"), Version::new("2.0.0")], vec![
         Version::new("2.0.0"),
-      ],
-      vec![
-        Version::new("1.0.1"), // Common
-        Version::new("1.1.0"), // Common
-        Version::new("1.2.0"),
-        Version::new("2.0.0"), // Common
         Version::new("3.0.0"),
-      ],
-    ),
-  );
-  let result = generate_diffs_from_paths(paths);
-  assert_eq!(result.len(), 1);
-  assert!(result[0].has_common_versions);
-  // 1.0.0 removed, 1.2.0 and 3.0.0 added
-  assert_eq!(result[0].old.len(), 1);
-  assert_eq!(result[0].new.len(), 2);
+      ]),
+    );
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    assert!(result[0].has_common_versions);
+    assert_eq!(result[0].status, DiffStatus::Changed(Change::Upgraded));
+  }
+
+  #[test]
+  fn selection_status_selected() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "system-pkg".to_owned(),
+      (vec![Version::new("1.0.0")], vec![Version::new("1.0.0")]),
+    );
+
+    let result = generate_diffs_from_paths(paths);
+    assert!(result.is_empty()); // No changes
+
+    // Create a changed package for selection testing
+    let mut paths = HashMap::new();
+    paths.insert(
+      "system-pkg".to_owned(),
+      (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
+    );
+
+    let mut result = generate_diffs_from_paths(paths);
+    let mut sys_old = HashSet::new();
+    let mut sys_new = HashSet::new();
+    sys_old.insert("system-pkg".to_owned());
+    sys_new.insert("system-pkg".to_owned());
+
+    add_selection_status(&mut result, &sys_old, &sys_new);
+    assert_eq!(result[0].selection, DerivationSelectionStatus::Selected);
+  }
+
+  #[test]
+  fn selection_status_newly_selected() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "new-system-pkg".to_owned(),
+      (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
+    );
+
+    let mut result = generate_diffs_from_paths(paths);
+    let sys_old = HashSet::new();
+    let mut sys_new = HashSet::new();
+    sys_new.insert("new-system-pkg".to_owned());
+
+    add_selection_status(&mut result, &sys_old, &sys_new);
+    assert_eq!(
+      result[0].selection,
+      DerivationSelectionStatus::NewlySelected
+    );
+  }
+
+  #[test]
+  fn selection_status_newly_unselected() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "removed-system-pkg".to_owned(),
+      (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
+    );
+
+    let mut result = generate_diffs_from_paths(paths);
+    let mut sys_old = HashSet::new();
+    let sys_new = HashSet::new();
+    sys_old.insert("removed-system-pkg".to_owned());
+
+    add_selection_status(&mut result, &sys_old, &sys_new);
+    assert_eq!(
+      result[0].selection,
+      DerivationSelectionStatus::NewlyUnselected
+    );
+  }
+
+  #[test]
+  fn selection_status_unselected() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "dep-pkg".to_owned(),
+      (vec![Version::new("1.0.0")], vec![Version::new("2.0.0")]),
+    );
+
+    let mut result = generate_diffs_from_paths(paths);
+    let sys_old = HashSet::new();
+    let sys_new = HashSet::new();
+
+    add_selection_status(&mut result, &sys_old, &sys_new);
+    assert_eq!(result[0].selection, DerivationSelectionStatus::Unselected);
+  }
+
+  #[test]
+  fn generate_diffs_many_versions() {
+    let mut paths = HashMap::new();
+    let old_versions: Vec<_> = (0..100)
+      .map(|i| Version::new(format!("1.{i}.{i}")))
+      .collect();
+    let new_versions: Vec<_> = (50..150)
+      .map(|i| Version::new(format!("1.{i}.{i}")))
+      .collect();
+
+    paths.insert("large-pkg".to_owned(), (old_versions, new_versions));
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    assert!(result[0].has_common_versions);
+    // Should have 50 old-only and 50 new-only versions
+    assert_eq!(result[0].old.len(), 50);
+    assert_eq!(result[0].new.len(), 50);
+  }
+
+  #[test]
+  fn generate_diffs_prerelease_versions() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "pkg".to_owned(),
+      (
+        vec![Version::new("1.0.0-alpha"), Version::new("1.0.0-beta")],
+        vec![Version::new("1.0.0"), Version::new("1.0.0-rc")],
+      ),
+    );
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    // All versions are different
+    assert_eq!(result[0].old.len(), 2);
+    assert_eq!(result[0].new.len(), 2);
+  }
+
+  #[test]
+  fn generate_diffs_complex_version_changes() {
+    let mut paths = HashMap::new();
+    paths.insert(
+      "complex-pkg".to_owned(),
+      (
+        vec![
+          Version::new("1.0.0"),
+          Version::new("1.0.1"),
+          Version::new("1.1.0"),
+          Version::new("2.0.0"),
+        ],
+        vec![
+          Version::new("1.0.1"), // Common
+          Version::new("1.1.0"), // Common
+          Version::new("1.2.0"),
+          Version::new("2.0.0"), // Common
+          Version::new("3.0.0"),
+        ],
+      ),
+    );
+    let result = generate_diffs_from_paths(paths);
+    assert_eq!(result.len(), 1);
+    assert!(result[0].has_common_versions);
+    // 1.0.0 removed, 1.2.0 and 3.0.0 added
+    assert_eq!(result[0].old.len(), 1);
+    assert_eq!(result[0].new.len(), 2);
+  }
 }

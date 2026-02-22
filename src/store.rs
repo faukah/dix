@@ -89,7 +89,7 @@ impl<'a> CombinedStoreBackend<'a> {
     CombinedStoreBackend::new(vec![
       Box::new(LazyDBConnection::new(DATABASE_PATH)),
       Box::new(EagerDBConnection::new(DATABASE_PATH_IMMUTABLE)),
-      Box::new(CommandBackend),
+      Box::new(CommandBackend::default()),
     ])
   }
 
@@ -102,7 +102,7 @@ impl<'a> CombinedStoreBackend<'a> {
   pub fn default_eager() -> Self {
     CombinedStoreBackend::new(vec![
       Box::new(EagerDBConnection::new(DATABASE_PATH)),
-      Box::new(CommandBackend),
+      Box::new(CommandBackend::default()),
     ])
   }
 

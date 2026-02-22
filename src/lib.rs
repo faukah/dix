@@ -36,7 +36,7 @@ use version::Version;
 /// A validated store path. Always starts with `/nix/store`.
 ///
 /// Can be created using `StorePath::try_from(path_buf)`.
-#[derive(Deref, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Deref, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StorePath(PathBuf);
 
 impl TryFrom<PathBuf> for StorePath {
@@ -64,14 +64,14 @@ impl StorePath {
   /// the length of the `/nix/store/0004yybkm5hnwjyxv129js3mjp7kbrax-` prefix.
   /// Then it matches that against our store path regex.
   fn parse_name_and_version(&self) -> Result<(&str, Option<Version>)> {
-    static STORE_PATH_REGEX: sync::LazyLock<regex::Regex> =
-      sync::LazyLock::new(|| {
+    static STORE_PATH_REGEX: sync::LazyLock<regex::Regex> = sync::LazyLock::new(
+      || {
         regex::Regex::new(
-          "(?<prefix>((/nix/store/)|(/tmp/.+?/))[a-zA-Z0-9]{32}-)(?<name>.+?\
-           )(-(?<version>[0-9].*?))?$",
+          r"(?<prefix>((/nix/store/)|(/tmp/.+?/))[a-zA-Z0-9]{32}-)(?<name>.+?)(-(?<version>[0-9].*?))?$",
         )
         .expect("failed to compile regex for Nix store paths")
-      });
+      },
+    );
 
     let path = self.to_str().with_context(|| {
       format!(
@@ -117,4 +117,167 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
   })?;
 
   Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+  use std::{
+    fs,
+    sync::OnceLock,
+  };
+
+  use proptest::proptest;
+  use tempfile::TempDir;
+
+  proptest! {
+    #[test]
+    fn parses_valid_paths(s in r"((/nix/store/)|(/tmp/.+?/))[a-z0-9A-Z]{32}-.+([0-9][-a-z0-9A-Z\.]*)?") {
+      let path = PathBuf::from(s);
+      let store_path = StorePath::try_from(path.clone()).expect("Failed to create StorePath");
+      let (_name, _version) = store_path.parse_name_and_version().expect("Failed to get name and version");
+    }
+  }
+
+  use super::*;
+
+  #[test]
+  fn test_store_path_from_nix_store() {
+    let path =
+      PathBuf::from("/nix/store/0123456789abcdefghijklmnopqrstuv-foo-1.0");
+    let store_path =
+      StorePath::try_from(path.clone()).expect("Failed to create StorePath");
+    let inner = store_path.0;
+    assert_eq!(inner, path)
+  }
+
+  #[test]
+  fn test_store_path_from_tmp_file() {
+    let path =
+      PathBuf::from("/tmp/test123/0123456789abcdefghijklmnopqrstuv-foo-1.0");
+    let store_path =
+      StorePath::try_from(path.clone()).expect("Failed to create StorePath");
+    let inner = store_path.0;
+    assert_eq!(inner, path)
+  }
+
+  #[test]
+  fn test_invalid_store_path() {
+    let path =
+      PathBuf::from("/invalid/prefix/0123456789abcdefghijklmnopqrstuv-foo-1.0");
+    let store_path = StorePath::try_from(path);
+    assert!(store_path.is_err())
+  }
+
+  #[test]
+  fn test_name_and_version_parsing_tmpfile() {
+    let path =
+      PathBuf::from("/tmp/test123/0123456789abcdefghijklmnopqrstuv-foo-1.0");
+    let store_path =
+      StorePath::try_from(path.clone()).expect("Failed to create StorePath");
+    let (name, version) = store_path
+      .parse_name_and_version()
+      .expect("Failed to parse name and version");
+    assert_eq!(name, "foo");
+    assert_eq!(version, Some(Version::new("1.0")));
+  }
+  #[test]
+  fn test_name_and_version_parsing_store_path() {
+    let path =
+      PathBuf::from("/nix/store/0123456789abcdefghijklmnopqrstuv-foo-1.0");
+    let store_path =
+      StorePath::try_from(path.clone()).expect("Failed to create StorePath");
+    let (name, version) = store_path
+      .parse_name_and_version()
+      .expect("Failed to parse name and version");
+    assert_eq!(name, "foo");
+    assert_eq!(version, Some(Version::new("1.0")));
+  }
+  #[test]
+  fn test_name_and_version_parsing_invalid_prefix() {
+    let path =
+      PathBuf::from("/nix/store/-0123456789abcdefghijklmnopqrstuv-foo-1.0");
+    let store_path =
+      StorePath::try_from(path.clone()).expect("Failed to create StorePath");
+    let parsed = store_path.parse_name_and_version();
+    assert!(parsed.is_err())
+  }
+
+  #[test]
+  fn test_name_and_version_parsing_no_version() {
+    let path = PathBuf::from("/nix/store/0123456789abcdefghijklmnopqrstuv-foo");
+    let store_path = StorePath::try_from(path).unwrap();
+    let (name, version) = store_path.parse_name_and_version().unwrap();
+    assert_eq!(name, "foo");
+    assert_eq!(version, None);
+  }
+
+  #[test]
+  fn test_unusual_store_paths() {
+    let paths = vec![
+      "/nix/store/0iav54v2brnmi2fv6bssla9k44z62cz7-po",
+      "/nix/store/0i5i9mj0n4nry46qvzlmi6h1k9d3pbcn-gtk2-theme-paths.patch",
+      "/nix/store/0dslh0d5kbgh40208jlf03n0zkjyc7cl-pkg-config-wrapper-0.29.\
+       2-man",
+      "/nix/store/0df8rz15sp4ai6md99q5qy9lf0srji5z-0001-Revert-libtool.\
+       m4-fix-nm-BSD-flag-detection.patch",
+      "/nix/store/0a1bxszp3c9rzphx8b6f5cb9ngbln6xj-unit-nix-daemon-.service",
+    ];
+    for p in paths {
+      let store_path = StorePath::try_from(PathBuf::from(p)).unwrap();
+      let (_name, _version) = store_path.parse_name_and_version().unwrap();
+    }
+  }
+
+  /// returns a temporary directory path (or creates it)
+  fn get_temp_dir() -> &'static Path {
+    static TEMP_DIR: OnceLock<TempDir> = OnceLock::new();
+    TEMP_DIR
+      .get_or_init(|| {
+        TempDir::new().expect("Failed to create temporary directory.")
+      })
+      .path()
+  }
+
+  #[test]
+  fn test_path_to_canonical_string_basic() {
+    let dir = get_temp_dir();
+    let path = dir.join("simple-basic-path");
+    fs::write(&path, "").unwrap();
+    let canonical = path_to_canonical_string(&path).unwrap();
+    assert_eq!(canonical, path);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn test_path_to_canonical_string_with_symlink() {
+    let dir = get_temp_dir();
+    let path = dir.join("symlink-path");
+    let target = dir.join("target-path");
+    fs::write(&target, "").unwrap();
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+    let canonical = path_to_canonical_string(&path).unwrap();
+    assert_eq!(canonical, target);
+  }
+
+  #[test]
+  #[cfg(unix)]
+  fn test_path_to_canonical_string_invalid_unicode() {
+    use std::{
+      ffi::OsString,
+      os::unix::ffi::OsStringExt,
+    };
+
+    let dir = get_temp_dir();
+    let path = dir.join(OsString::from_vec(
+      "invalid-unicode"
+        .as_bytes()
+        .into_iter()
+        .chain(&[0xFFu8, 0xFE])
+        .map(|b| *b)
+        .collect(),
+    ));
+    std::fs::write(&path, "").unwrap();
+    let canonical = path_to_canonical_string(&path);
+    assert!(canonical.is_err());
+  }
 }

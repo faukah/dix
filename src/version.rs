@@ -236,11 +236,61 @@ impl fmt::Write for Version {
 
 #[cfg(test)]
 mod tests {
+  use proptest::proptest;
+
   use super::{
     Version,
     VersionComponent,
     VersionPiece,
   };
+
+  // tests to ensure that [`Version::cmp`] is a total order
+  proptest! {
+    #[test]
+    fn test_version_transitivity(
+      a in ".*",
+      b in ".*",
+      c in ".*",
+    ) {
+      let a = Version::new(a);
+      let b = Version::new(b);
+      let c = Version::new(c);
+
+      // a < b < c -> a < c
+      assert!(!(a < b && b < c) || a < c);
+      // a < c < b -> a < b
+      assert!(!(a < c && c < b) || a < b);
+      // b < a < c -> b < c
+      assert!(!(b < a && a < c) || b < c);
+      // b < c < a -> b < a
+      assert!(!(b < c && c < a) || b < a);
+      // c < a < b -> c < b
+      assert!(!(c < a && a < b) || c < b);
+      // c < b < a -> c < a
+      assert!(!(c < b && b < a) || c < a);
+    }
+
+    fn test_version_reflexivity(
+      a in ".*",
+    ) {
+      let a = Version::new(a);
+
+      assert_eq!(a.cmp(&a), std::cmp::Ordering::Equal);
+      assert_eq!(a, a)
+    }
+
+    fn test_version_antisymmetry(
+      a in ".*",
+      b in ".*",
+    ) {
+      let a = Version::new(a);
+      let b = Version::new(b);
+
+      // a < b && b < a -> a == b
+      assert!(!(a < b && b > a) || (a.cmp(&b) == std::cmp::Ordering::Equal && a == b));
+    }
+
+  }
 
   #[test]
   fn version_component_iter() {

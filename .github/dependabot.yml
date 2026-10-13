@@ -1,21 +1,34 @@
 version: 2
 updates:
-  - package-ecosystem: "cargo"
-    directory: "/"
+  - package-ecosystem: cargo
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
       rust-dependencies:
-        patterns:
-          - "*"
-  - package-ecosystem: "github-actions"
-    directory: "/"
+        patterns: ["*"]
+    commit-message:
+      prefix: cargo
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-  - package-ecosystem: "nix"
-    directory: "/"
+      interval: weekly
+    cooldown:
+      default-days: 7
+      exclude: [manic-systems/*]
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+  - package-ecosystem: nix
+    directory: /
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: flake

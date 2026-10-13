@@ -1,0 +1,14 @@
+name: Auto-merge
+
+on: pull_request
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: manic-systems/workflows/.github/workflows/auto-merge.yml@d93951cf50722594dc1d64602eb9453dc7da2fb6 # v2.3.0
+    with:
+      approve: true

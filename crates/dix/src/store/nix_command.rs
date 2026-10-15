@@ -10,11 +10,11 @@ use std::{
   process::Command,
 };
 
-use eyre::{
-  Context,
+use misstep::{
   Result,
+  ResultExt as _,
   bail,
-  eyre,
+  report,
 };
 use size::Size;
 
@@ -53,7 +53,7 @@ impl Display for CommandBackend {
 fn run(command: &mut Command) -> Result<String> {
   let output = command
     .output()
-    .wrap_err_with(|| format!("failed to execute {command:?}"))?;
+    .with_context(|| format!("failed to execute {command:?}"))?;
   if !output.status.success() {
     bail!(
       "{command:?} exited with {status}: {err}",
@@ -63,7 +63,7 @@ fn run(command: &mut Command) -> Result<String> {
   }
 
   String::from_utf8(output.stdout)
-    .wrap_err_with(|| format!("{command:?} printed invalid UTF-8"))
+    .with_context(|| format!("{command:?} printed invalid UTF-8"))
 }
 
 /// Parses Nix command output listing one store path per line.
@@ -79,9 +79,9 @@ fn parse_store_path_output(output: &str) -> Result<Vec<StorePath>> {
   output
     .lines()
     .map(|line| {
-      StorePath::try_from(PathBuf::from(line)).context(eyre!(
-        "encountered invalid path in nix command output: {line}"
-      ))
+      StorePath::try_from(PathBuf::from(line)).with_context(|| {
+        format!("encountered invalid path in nix command output: {line}")
+      })
     })
     .collect()
 }
@@ -101,12 +101,12 @@ fn parse_path_info_size_output(output: &str) -> Result<Vec<StorePathInfo>> {
     let mut columns = line.split_whitespace();
     let path = columns
       .next()
-      .ok_or_else(|| eyre!("missing path in nix path-info output line"))?;
+      .ok_or_else(|| report!("missing path in nix path-info output line"))?;
     let bytes = columns
       .next()
-      .ok_or_else(|| eyre!("missing NAR size in nix path-info output line"))?
+      .ok_or_else(|| report!("missing NAR size in nix path-info output line"))?
       .parse::<i64>()
-      .wrap_err("failed to parse NAR size from nix path-info output")?;
+      .context("failed to parse NAR size from nix path-info output")?;
 
     infos.push(StorePathInfo::new(
       StorePath::try_from(PathBuf::from(path))?,

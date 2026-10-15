@@ -9,10 +9,11 @@ use std::{
   },
 };
 
-use eyre::{
-  Context as _,
+use misstep::{
+  Report,
   Result,
-  eyre,
+  ResultExt as _,
+  report,
 };
 use rusqlite::{
   Connection,
@@ -58,7 +59,7 @@ impl DbConnection {
     self
       .conn
       .as_ref()
-      .ok_or_else(|| eyre!("Attempted to use database before connecting."))
+      .ok_or_else(|| report!("Attempted to use database before connecting."))
   }
 }
 
@@ -146,11 +147,11 @@ fn close_inner_connection(
   maybe_conn: &mut Option<Connection>,
 ) -> Result<()> {
   let conn = maybe_conn.take().ok_or_else(|| {
-    eyre!("Tried to close connection to {} that does not exist", path)
+    report!("Tried to close connection to {} that does not exist", path)
   })?;
   conn.close().map_err(|(conn_old, err)| {
     *maybe_conn = Some(conn_old);
-    eyre::Report::from(err).wrap_err("failed to close Nix database")
+    Report::from_error(err).context("failed to close Nix database")
   })
 }
 

@@ -3,13 +3,13 @@ use std::path::{
   PathBuf,
 };
 
-use eyre::{
-  Context as _,
-  ContextCompat as _,
-  Error,
+use misstep::{
+  OptionExt as _,
+  Report,
   Result,
+  ResultExt as _,
   bail,
-  eyre,
+  report,
 };
 
 pub mod json;
@@ -81,7 +81,7 @@ impl std::ops::Deref for StorePath {
 }
 
 impl TryFrom<PathBuf> for StorePath {
-  type Error = Error;
+  type Error = Report;
 
   fn try_from(path: PathBuf) -> Result<Self> {
     tracing::trace!(path = %path.display(), "validating store path");
@@ -125,7 +125,7 @@ impl StorePath {
     })?;
 
     let (store_hash, name) = file_name.split_once('-').ok_or_else(|| {
-      eyre!("path '{path}' does not match expected Nix store format")
+      report!("path '{path}' does not match expected Nix store format")
     })?;
 
     if store_hash.len() != 32
@@ -189,7 +189,7 @@ fn path_to_canonical_string(path: &Path) -> Result<String> {
 
   let path = path.into_os_string().into_string().map_err(|path| {
     tracing::debug!("path contains invalid unicode characters");
-    eyre!(
+    report!(
       "failed to convert path '{path}' to valid unicode",
       path = path.display(),
     )

@@ -12,7 +12,7 @@ use dix_diff::{
   PackageSnapshot,
   diff_snapshots,
 };
-use eyre::Result;
+use misstep::Result;
 use size::Size;
 
 use crate::{

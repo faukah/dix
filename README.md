@@ -13,20 +13,24 @@ package).
 $ dix --help
 Diff Nix
 
-Usage: dix [OPTIONS] <COMMAND>
+Usage: dix [OPTION]... COMMAND
 
 Commands:
   diff      Show the differences between two store paths
   last      Show successive changes ending at the current profile generation
   snapshot  Print the closure of a store path as a versioned JSON snapshot
-  help      Print this message or the help of the given subcommand(s)
+  help      Print help for a command
 
 Options:
-  -v, --verbose...    Increase logging verbosity
-  -q, --quiet...      Decrease logging verbosity
-      --color <WHEN>  Controls when to use color [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-  -V, --version       Print version
+  -v, --verbose     Show more log output, repeat for more detail
+      --color=WHEN  Controls when to use color [default: auto]
+
+                    Possible values:
+                    - auto: Color when stdout is a terminal and the environment allows it
+                    - always
+                    - never
+  -h, --help        Print help
+  -V, --version     Print version
 
 $ dix diff /nix/var/profiles/system-69-link /run/current-system
 $ dix last

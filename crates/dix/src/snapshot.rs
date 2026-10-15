@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use eyre::{
-  Context as _,
+use misstep::{
   Result,
+  ResultExt as _,
   bail,
 };
 use serde::{

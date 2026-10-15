@@ -1,8 +1,8 @@
 use std::io::Write;
 
-use eyre::{
+use misstep::{
   Result,
-  WrapErr as _,
+  ResultExt as _,
 };
 use serde::Serialize;
 

@@ -14,9 +14,9 @@ use std::{
 };
 
 pub use db::DbConnection;
-use eyre::{
+use misstep::{
   Result,
-  eyre,
+  report,
 };
 pub use nix_command::CommandBackend;
 use serde::{
@@ -184,7 +184,7 @@ impl CombinedStoreBackend {
   where
     F: Fn(&dyn StoreBackend, &Path) -> Result<Ret>,
   {
-    let mut combined_err: Option<eyre::Report> = None;
+    let mut combined_err: Option<misstep::Report> = None;
     // attempt to cycle through backends until a successful query is made
     for (i, backend) in self.backends.iter().enumerate() {
       if !backend.connected() {
@@ -203,14 +203,14 @@ impl CombinedStoreBackend {
             &err
           );
           combined_err = match combined_err {
-            Some(combined) => Some(combined.wrap_err(err)),
+            Some(combined) => Some(combined.context(err)),
             None => Some(err),
           };
         },
       }
     }
     warn!("All store backends for path {path:?} failed");
-    Err(combined_err.unwrap_or_else(|| eyre!("No internal stores to query.")))
+    Err(combined_err.unwrap_or_else(|| report!("No internal stores to query.")))
   }
 }
 
@@ -240,7 +240,7 @@ impl StoreBackend for CombinedStoreBackend {
       backend_count = self.backends.len(),
       "connecting to store backends"
     );
-    let mut combined_err: Option<eyre::Report> = None;
+    let mut combined_err: Option<misstep::Report> = None;
     let mut connected_count = 0;
     // connect, collecting the errors as we go
     for (i, backend) in self.backends.iter_mut().enumerate() {
@@ -251,7 +251,7 @@ impl StoreBackend for CombinedStoreBackend {
            (error: {err})"
         );
         combined_err = match combined_err {
-          Some(combined) => Some(combined.wrap_err(err)),
+          Some(combined) => Some(combined.context(err)),
           None => Some(err),
         }
       } else {
@@ -275,8 +275,8 @@ impl StoreBackend for CombinedStoreBackend {
       Ok(())
     } else {
       combined_err =
-        combined_err.map(|err| err.wrap_err("All backends failed to connect."));
-      Err(combined_err.unwrap_or_else(|| eyre!("No backends to connect to.")))
+        combined_err.map(|err| err.context("All backends failed to connect."));
+      Err(combined_err.unwrap_or_else(|| report!("No backends to connect to.")))
     }
   }
 
@@ -289,21 +289,21 @@ impl StoreBackend for CombinedStoreBackend {
   ///
   /// If some fail to close, the combined error is returned.
   fn close(&mut self) -> Result<()> {
-    let mut combined_err: Option<eyre::Report> = None;
+    let mut combined_err: Option<misstep::Report> = None;
     for (i, backend) in self.backends.iter_mut().enumerate() {
       if backend.connected()
         && let Err(err) = backend.close()
       {
         warn!("Unable to close store backend {i}: {backend}. (error: {err})");
         combined_err = match combined_err {
-          Some(combined) => Some(combined.wrap_err(err)),
+          Some(combined) => Some(combined.context(err)),
           None => Some(err),
         };
       }
     }
     combined_err.map_or_else(
       || Ok(()),
-      |err| Err(err.wrap_err("One or more backends failed to close.")),
+      |err| Err(err.context("One or more backends failed to close.")),
     )
   }
 
@@ -360,7 +360,7 @@ mod test {
   impl StoreBackend for MockStoreBackend {
     fn connect(&mut self) -> Result<()> {
       if self.fail_connect {
-        Err(eyre!("Connection failed"))
+        Err(report!("Connection failed"))
       } else {
         self.connected = true;
         Ok(())
@@ -382,7 +382,7 @@ mod test {
     ) -> Result<Vec<StorePath>> {
       *self.query_called.borrow_mut() = true;
       if self.fail_query {
-        Err(eyre!("Query failed"))
+        Err(report!("Query failed"))
       } else {
         Ok(Vec::new())
       }
@@ -394,7 +394,7 @@ mod test {
     ) -> Result<Vec<StorePathInfo>> {
       *self.query_called.borrow_mut() = true;
       if self.fail_query {
-        Err(eyre!("Query failed"))
+        Err(report!("Query failed"))
       } else {
         Ok(vec![StorePathInfo::new(
           StorePath::try_from(

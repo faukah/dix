@@ -11,7 +11,7 @@ use std::{
   },
 };
 
-use eyre::Result;
+use misstep::Result;
 use rusqlite::Connection;
 use size::Size;
 use tempfile::TempDir;
@@ -187,12 +187,12 @@ impl TestDbBuilder {
         .get(referrer)
         .copied()
         .or_else(|| self.get_id(referrer))
-        .ok_or_else(|| eyre::eyre!("Referrer not found: {referrer}"))?;
+        .ok_or_else(|| misstep::report!("Referrer not found: {referrer}"))?;
       let reference_id = path_ids
         .get(reference)
         .copied()
         .or_else(|| self.get_id(reference))
-        .ok_or_else(|| eyre::eyre!("Reference not found: {reference}"))?;
+        .ok_or_else(|| misstep::report!("Reference not found: {reference}"))?;
       self.add_reference(referrer_id, reference_id)?;
     }
 

@@ -19,13 +19,16 @@ use std::{
   time::Duration,
 };
 
-use clap::Parser as _;
 use dix::{
   DiffReport,
   RenderOptions,
   json,
 };
-use eyre::eyre;
+use misstep::report;
+use pound::{
+  Parse,
+  ValueEnum,
+};
 use size::Size;
 use yansi::Paint as _;
 
@@ -44,26 +47,30 @@ impl<W: io::Write> fmt::Write for WriteFmt<W> {
   }
 }
 
-#[derive(clap::Parser, Debug)]
-#[command(version, about)]
+/// Diff Nix.
+#[derive(Parse)]
 struct Cli {
-  #[command(subcommand)]
+  #[pound(subcommand)]
   command: Command,
 
-  #[command(flatten)]
-  verbose: clap_verbosity_flag::Verbosity,
+  /// Show more log output, repeat for more detail.
+  #[pound(short, long, count, global)]
+  verbose: u8,
 
   /// Controls when to use color.
-  #[arg(
-      long,
-      default_value_t = clap::ColorChoice::Auto,
-      value_name = "WHEN",
-      global = true,
-  )]
-  color: clap::ColorChoice,
+  #[pound(long, default = ColorChoice::Auto, value_name = "WHEN", global)]
+  color: ColorChoice,
 }
 
-#[derive(clap::Subcommand, Debug, PartialEq, Eq)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+enum ColorChoice {
+  /// Color when stdout is a terminal and the environment allows it.
+  Auto,
+  Always,
+  Never,
+}
+
+#[derive(Parse, Debug, PartialEq, Eq)]
 enum Command {
   /// Show the differences between two store paths.
   Diff {
@@ -71,39 +78,39 @@ enum Command {
     new_path: PathBuf,
 
     /// Select the output format to use.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
+    #[pound(long, default = OutputFormat::Human)]
     output: OutputFormat,
 
-    #[command(flatten)]
+    #[pound(flatten)]
     render: RenderArgs,
   },
   /// Show successive changes ending at the current profile generation.
   Last {
     /// Number of transitions to show.
-    #[arg(default_value_t = NonZeroUsize::MIN)]
+    #[pound(default = "1")]
     count: NonZeroUsize,
 
     /// Show every adjacent pair of existing generations in numerical order.
-    #[arg(long, conflicts_with_all = ["count", "from", "to"])]
+    #[pound(long, conflicts_with = [count, from, to])]
     all: bool,
 
     /// Show generations numbered from GENERATION onwards.
-    #[arg(short, long, value_name = "GENERATION", conflicts_with = "count")]
+    #[pound(short, long, value_name = "GENERATION", conflicts_with = count)]
     from: Option<u64>,
 
     /// Show generations numbered up to GENERATION.
-    #[arg(short, long, value_name = "GENERATION", conflicts_with = "count")]
+    #[pound(short, long, value_name = "GENERATION", conflicts_with = count)]
     to: Option<u64>,
 
     /// Profile link to inspect.
-    #[arg(long, default_value = SYSTEM_PROFILE)]
+    #[pound(long, default = { SYSTEM_PROFILE })]
     profile: PathBuf,
 
     /// Select the output format to use.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
+    #[pound(long, default = OutputFormat::Human)]
     output: OutputFormat,
 
-    #[command(flatten)]
+    #[pound(flatten)]
     render: RenderArgs,
   },
   /// Print the closure of a store path as a versioned JSON snapshot.
@@ -111,20 +118,15 @@ enum Command {
 }
 
 /// Options for the human-readable output.
-#[derive(clap::Args, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Parse, Debug, Clone, Copy, PartialEq, Eq)]
 struct RenderArgs {
   /// Also show packages whose version did not change.
-  #[arg(long)]
+  #[pound(long)]
   full: bool,
 
   /// Hide packages whose version did not change if their size changed by
   /// less than SIZE (e.g. 4096, 512KiB, 10MB).
-  #[arg(
-    long,
-    value_name = "SIZE",
-    default_value_t = RenderOptions::default().min_size_delta,
-    value_parser = parse_size,
-  )]
+  #[pound(long, value_name = "SIZE", default = "1MiB", parse = parse_size)]
   min_size_delta: Size,
 }
 
@@ -158,7 +160,7 @@ fn parse_size(value: &str) -> Result<Size, String> {
 }
 
 /// Determines the output format to be used by dix.
-#[derive(Debug, Clone, Copy, clap::ValueEnum, Eq, PartialEq)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 enum OutputFormat {
   /// Output in the default dix format highlighting version changes.
   Human,
@@ -166,7 +168,7 @@ enum OutputFormat {
   Json,
 }
 
-fn main() -> eyre::Result<()> {
+fn main() -> misstep::Result<()> {
   let Cli {
     command,
     verbose,
@@ -174,32 +176,24 @@ fn main() -> eyre::Result<()> {
   } = Cli::parse();
 
   yansi::whenever(match color {
-    clap::ColorChoice::Auto => yansi::Condition::from(should_style),
-    clap::ColorChoice::Always => yansi::Condition::ALWAYS,
-    clap::ColorChoice::Never => yansi::Condition::NEVER,
+    ColorChoice::Auto => yansi::Condition::from(should_style),
+    ColorChoice::Always => yansi::Condition::ALWAYS,
+    ColorChoice::Never => yansi::Condition::NEVER,
   });
 
   tracing_subscriber::fmt()
     .with_env_filter(
       tracing_subscriber::EnvFilter::builder()
-        .with_default_directive(match verbose.log_level_filter() {
-          clap_verbosity_flag::log::LevelFilter::Off
-          | clap_verbosity_flag::log::LevelFilter::Error => {
-            tracing::Level::ERROR.into()
-          },
-          clap_verbosity_flag::log::LevelFilter::Warn => {
-            tracing::Level::WARN.into()
-          },
-          clap_verbosity_flag::log::LevelFilter::Info => {
-            tracing::Level::INFO.into()
-          },
-          clap_verbosity_flag::log::LevelFilter::Debug => {
-            tracing::Level::DEBUG.into()
-          },
-          clap_verbosity_flag::log::LevelFilter::Trace => {
-            tracing::Level::TRACE.into()
-          },
-        })
+        .with_default_directive(
+          match verbose {
+            0 => tracing::Level::ERROR,
+            1 => tracing::Level::WARN,
+            2 => tracing::Level::INFO,
+            3 => tracing::Level::DEBUG,
+            _ => tracing::Level::TRACE,
+          }
+          .into(),
+        )
         .from_env_lossy(),
     )
     .with_writer(io::stderr)
@@ -244,7 +238,7 @@ fn main() -> eyre::Result<()> {
 /// # Errors
 ///
 /// Returns an error if the snapshot cannot be queried or written.
-fn print_snapshot(path: &Path) -> eyre::Result<()> {
+fn print_snapshot(path: &Path) -> misstep::Result<()> {
   let document = dix::query_snapshot_document(path)?;
   let mut out = io::stdout().lock();
   serde_json::to_writer(&mut out, &document)?;
@@ -267,10 +261,10 @@ fn print_diff(
   new_path: &Path,
   output: OutputFormat,
   options: RenderOptions,
-) -> eyre::Result<()> {
+) -> misstep::Result<()> {
   for (name, path) in [("old", old_path), ("new", new_path)] {
     if !path.exists() {
-      return Err(eyre!(
+      return Err(report!(
         "{name} profile path does not exist: {}",
         path.display()
       ));
@@ -320,7 +314,7 @@ fn print_last(
   span: Span,
   output: OutputFormat,
   options: RenderOptions,
-) -> eyre::Result<()> {
+) -> misstep::Result<()> {
   let generations = select_generations(profile, span)?;
   let paths = generations
     .iter()
@@ -375,7 +369,7 @@ fn display_diff(
   new_path: &Path,
   report: &DiffReport,
   options: RenderOptions,
-) -> eyre::Result<usize> {
+) -> misstep::Result<usize> {
   let mut out = WriteFmt(io::stdout());
 
   tracing::info!("rendering diff report");
@@ -413,7 +407,7 @@ fn display_diff(
 /// # Errors
 ///
 /// Returns an error if the output cannot be written.
-fn print_hidden_note(hidden: usize) -> eyre::Result<()> {
+fn print_hidden_note(hidden: usize) -> misstep::Result<()> {
   if hidden == 0 {
     return Ok(());
   }
@@ -476,7 +470,7 @@ mod tests {
 
   #[test]
   fn diff_subcommand_parses() {
-    let cli = Cli::try_parse_from(["dix", "diff", "/old", "/new"]).unwrap();
+    let cli = Cli::try_parse_from(["diff", "/old", "/new"]).unwrap();
     assert_eq!(cli.command, Command::Diff {
       old_path: PathBuf::from("/old"),
       new_path: PathBuf::from("/new"),
@@ -487,12 +481,12 @@ mod tests {
 
   #[test]
   fn bare_paths_are_rejected() {
-    assert!(Cli::try_parse_from(["dix", "/old", "/new"]).is_err());
+    assert!(Cli::try_parse_from(["/old", "/new"]).is_err());
   }
 
   #[test]
   fn last_subcommand_parses() {
-    let cli = Cli::try_parse_from(["dix", "last", "3"]).unwrap();
+    let cli = Cli::try_parse_from(["last", "3"]).unwrap();
     assert_eq!(cli.command, Command::Last {
       count:   NonZeroUsize::new(3).unwrap(),
       all:     false,
@@ -504,7 +498,6 @@ mod tests {
     });
 
     let cli = Cli::try_parse_from([
-      "dix",
       "last",
       "--all",
       "--profile",
@@ -527,8 +520,7 @@ mod tests {
   #[test]
   fn last_accepts_generation_ranges() {
     let cli =
-      Cli::try_parse_from(["dix", "last", "--from", "300", "-t", "320"])
-        .unwrap();
+      Cli::try_parse_from(["last", "--from", "300", "-t", "320"]).unwrap();
     assert!(matches!(cli.command, Command::Last {
       from: Some(300),
       to: Some(320),
@@ -539,22 +531,24 @@ mod tests {
   #[test]
   fn last_rejects_invalid_arguments() {
     for args in [
-      ["dix", "last", "0"].as_slice(),
-      &["dix", "last", "-1"],
-      &["dix", "last", "not-a-number"],
-      &["dix", "last", "3", "--all"],
-      &["dix", "last", "3", "--from", "2"],
-      &["dix", "last", "--all", "--to", "2"],
-      &["dix", "last", "--from", "-2"],
+      ["last", "0"].as_slice(),
+      &["last", "-1"],
+      &["last", "not-a-number"],
+      &["last", "3", "--all"],
+      &["last", "3", "--from", "2"],
+      &["last", "--all", "--to", "2"],
+      &["last", "--from", "-2"],
     ] {
-      assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
+      assert!(
+        Cli::try_parse_from(args.iter().copied()).is_err(),
+        "{args:?}"
+      );
     }
   }
 
   #[test]
   fn snapshot_subcommand_parses() {
-    let cli =
-      Cli::try_parse_from(["dix", "snapshot", "/run/current-system"]).unwrap();
+    let cli = Cli::try_parse_from(["snapshot", "/run/current-system"]).unwrap();
     assert_eq!(cli.command, Command::Snapshot {
       path: PathBuf::from("/run/current-system"),
     });

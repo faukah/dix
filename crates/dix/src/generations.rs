@@ -7,11 +7,11 @@ use std::{
   },
 };
 
-use eyre::{
-  Context as _,
+use misstep::{
   Result,
+  ResultExt as _,
   bail,
-  eyre,
+  report,
 };
 
 /// The system profile used when no profile is specified.
@@ -108,7 +108,7 @@ pub fn select_generations(
       // Read the numbered link instead of its store target: generations can
       // share a store path, and a rollback can select an older
       // generation.
-      let current = fs::read_link(profile).wrap_err_with(|| {
+      let current = fs::read_link(profile).with_context(|| {
         format!(
           "failed to read current profile link '{}'",
           profile.display()
@@ -120,7 +120,7 @@ pub fn select_generations(
           generation.path.file_name() == current.file_name()
         })
         .ok_or_else(|| {
-          eyre!(
+          report!(
             "profile '{}' does not select an existing numbered generation",
             profile.display()
           )
